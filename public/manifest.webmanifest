@@ -1,0 +1,10 @@
+{
+  "name": "Strike Horizon - Combat Flight Simulator",
+  "short_name": "Strike Horizon",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b1118",
+  "theme_color": "#0b1118",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

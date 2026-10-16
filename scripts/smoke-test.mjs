@@ -135,6 +135,9 @@ async function landingRoll(label, jet, keys, speed) {
     // game time, not wall time: software rendering in CI runs far slower than real time
     else if (op === 'stop') {
       await page.waitForFunction(() => { const fm = window.__game.battle.player.fm; return fm.crashed || (fm.onGround && (fm.groundSpeed ?? fm.airspeed) < 1.5); }, null, { timeout: arg, polling: 250 }).catch(() => {});
+    } else if (op === 'until') {
+      // [condition on the player's flight model, timeout]: wait in game time
+      await page.waitForFunction((src) => new Function('fm', 'return ' + src)(window.__game.battle.player.fm), arg[0], { timeout: arg[1], polling: 100 }).catch(() => {});
     } else await page.waitForTimeout(arg);
   }
   const res = await page.evaluate(() => {
@@ -214,11 +217,14 @@ for (const run of runs) {
 }
 
 // airliner: autobrake MED armed (U x2), reversers after touchdown (J), stow at taxi speed
-await landingRoll('roll-a320-autobrake-reverse', 'a320', [['press', 'KeyU'], ['wait', 300], ['press', 'KeyU'], ['wait', 1500], ['press', 'KeyJ'], ['stop', 300000]], 70);
+await landingRoll('roll-a320-autobrake-reverse', 'a320', [
+  ['press', 'KeyU'], ['until', ["fm.autobrake.mode === 'LO'", 20000]], ['press', 'KeyU'], ['until', ["fm.autobrake.mode === 'MED'", 20000]],
+  ['until', ['fm.onGround && fm._touchT > 0.3', 120000]], ['press', 'KeyJ'], ['stop', 600000],
+], 70);
 // fighter with a drag chute: chute + toe brakes
-await landingRoll('roll-mig29-chute', 'mig29', [['wait', 600], ['press', 'KeyJ'], ['wait', 1500], ['down', 'KeyB'], ['stop', 300000], ['up', 'KeyB']], 72);
+await landingRoll('roll-mig29-chute', 'mig29', [['until', ['fm.onGround && fm._touchT > 0.3', 120000]], ['press', 'KeyJ'], ['down', 'KeyB'], ['stop', 600000], ['up', 'KeyB']], 72);
 // fighter without chute: toe brakes only, plus a radio request (M) once stopped
-await landingRoll('roll-f16-brakes', 'f16', [['wait', 400], ['down', 'KeyB'], ['stop', 300000], ['up', 'KeyB'], ['press', 'KeyM'], ['wait', 400], ['press', 'Digit2'], ['wait', 5000]], 70);
+await landingRoll('roll-f16-brakes', 'f16', [['wait', 400], ['down', 'KeyB'], ['stop', 600000], ['up', 'KeyB'], ['press', 'KeyM'], ['wait', 400], ['press', 'Digit2'], ['wait', 5000]], 70);
 
 // pause / resume / quit
 await page.keyboard.press('Escape');

@@ -17,6 +17,8 @@ export class TouchControls {
         <button data-b="camera" class="t-btn">CAM</button>
         <button data-b="gear" class="t-btn t-small">GEAR</button>
         <button data-b="airbrake" class="t-btn t-small">BRK</button>
+        <button data-b="reverser" class="t-btn t-small">REV</button>
+        <button data-b="radio" class="t-btn t-small">RADIO</button>
       </div>
       <button data-b="pause" class="t-pause">❚❚</button>`;
     root.appendChild(this.el);

@@ -147,6 +147,29 @@ export class Effects {
     }
   }
 
+  // Tyres spinning up at touchdown: a puff of white-grey rubber smoke per wheel
+  tyreSmoke(pos, vel, strength = 1) {
+    const p = this.particles;
+    const n = this.lowQuality ? 3 : 6;
+    for (let i = 0; i < n; i++) {
+      p.smoke.emit({
+        x: pos.x + (Math.random() - 0.5) * 0.8, y: pos.y + 0.3, z: pos.z + (Math.random() - 0.5) * 0.8,
+        vx: vel.x * 0.35 + (Math.random() - 0.5) * 3, vy: 0.6 + Math.random() * 1.5, vz: vel.z * 0.35 + (Math.random() - 0.5) * 3,
+        life: 1.4 + Math.random() * 1.2, size0: 0.8 * strength + 0.4, size1: 5 * strength + 2,
+        color0: [0.92, 0.92, 0.94, 0.6 * Math.min(1, strength)], color1: [0.95, 0.95, 0.97, 0], cell: 0, drag: 2.2,
+      });
+    }
+  }
+
+  // Overheated brakes: thin dark wisps rising from the wheel wells
+  brakeSmoke(pos, vel) {
+    this.particles.smoke.emit({
+      x: pos.x + (Math.random() - 0.5) * 0.6, y: pos.y + 0.5, z: pos.z + (Math.random() - 0.5) * 0.6,
+      vx: vel.x * 0.2, vy: 1.2 + Math.random(), vz: vel.z * 0.2,
+      life: 2.2 + Math.random(), size0: 0.5, size1: 3.2, color0: [0.22, 0.21, 0.2, 0.45], color1: [0.4, 0.4, 0.4, 0], cell: 0, drag: 1.5, gravity: -0.4,
+    });
+  }
+
   muzzleFlash(pos) {
     this.particles.fire.emit({ x: pos.x, y: pos.y, z: pos.z, life: 0.04, size0: 1.6, size1: 2.2, color0: [6, 4.5, 2, 1], color1: [4, 2, 0.5, 0], cell: 2, drag: 0 });
   }

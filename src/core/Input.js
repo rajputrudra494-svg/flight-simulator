@@ -22,6 +22,7 @@ export class Input {
       gun: false, missile: false, flare: false, target: false, camera: false, gear: false,
       airbrake: false, brakes: false, pause: false, lookX: 0, lookY: 0, look: false, view: false, help: false,
       cycleWeapon: false, lockView: false, weaponCam: false,
+      autobrake: false, reverser: false, radio: false,
     };
     this.kb = { pitch: 0, roll: 0, yaw: 0 };
     this.gamepadIndex = null;
@@ -131,6 +132,10 @@ export class Input {
     const cycleWeapon = hit('KeyN');
     let lockView = hit('KeyY');
     const weaponCam = hit('KeyK');
+    // deceleration devices and radio
+    let autobrake = hit('KeyU');
+    let reverser = hit('KeyJ');
+    let radio = hit('KeyM');
     if (this.mouseClick.has(1)) lockView = true;
     let lookX = 0, lookY = 0, look = false;
     if (any('Numpad4')) { lookX -= 1; look = true; }
@@ -185,6 +190,8 @@ export class Input {
       if (edge(6) || edge(0)) missile = true;
       if (edge(1)) flare = true;
       if (b(10)) airbrake = brakes = true;
+      if (edge(14)) reverser = true;
+      if (edge(15)) autobrake = true;
       this._gpEdges = {
         target: edge(2), camera: edge(3), pause: edge(9), gear: edge(8), look: edge(11),
       };
@@ -223,6 +230,9 @@ export class Input {
     s.cycleWeapon = cycleWeapon || tb.has('weapon');
     s.lockView = lockView || tb.has('lockview');
     s.weaponCam = weaponCam;
+    s.autobrake = autobrake || tb.has('autobrake');
+    s.reverser = reverser || tb.has('reverser');
+    s.radio = radio || tb.has('radio');
     s.lookX = look ? lookX : s.lookX;
     s.lookY = look ? lookY : s.lookY;
     s.look = look;
@@ -230,7 +240,7 @@ export class Input {
 
     this.pressed.clear();
     this.mouseClick.clear();
-    tb.delete('missile'); tb.delete('flare'); tb.delete('target'); tb.delete('camera'); tb.delete('gear'); tb.delete('pause'); tb.delete('weapon'); tb.delete('lockview');
+    tb.delete('missile'); tb.delete('flare'); tb.delete('target'); tb.delete('camera'); tb.delete('gear'); tb.delete('pause'); tb.delete('weapon'); tb.delete('lockview'); tb.delete('autobrake'); tb.delete('reverser'); tb.delete('radio');
     return s;
   }
 }

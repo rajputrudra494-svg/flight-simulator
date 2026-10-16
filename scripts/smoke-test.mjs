@@ -25,8 +25,10 @@ async function waitForServer(url, ms = 60000) {
 }
 
 await waitForServer(base);
+// CHROME_PATH runs an installed Chrome instead of Playwright's Chromium; SMOKE_ANGLE picks the GL backend
 const browser = await chromium.launch({
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
+  executablePath: process.env.CHROME_PATH || undefined,
+  args: ['--use-gl=angle', `--use-angle=${process.env.SMOKE_ANGLE || 'swiftshader'}`, '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
 });
 const quality = process.env.SMOKE_QUALITY || 'low';
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -94,8 +96,56 @@ const telemetry = () => {
     bullets: b.weapons.bullets.length,
     objectives: g.mission.objectiveLines().map((o) => `${o.text} ${o.progress}${o.done ? ' (done)' : ''}`),
     score: g.mission.score,
+    radio: g.radio ? g.radio.log.slice(-3).map((e) => `${e.station && e.station.short}: ${e.display}`) : [],
   };
 };
+
+// Landing roll: drop the player onto the runway threshold at touchdown speed and
+// let the brakes, autobrake, spoilers, reversers or chute stop it.
+async function landingRoll(label, jet, keys, speed) {
+  await page.evaluate(([j]) => window.__game.startFree({ map: 'pacific', time: 'morning', enemies: 'none', ground: false, rings: false, start: 'runway' }, j), [jet]);
+  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 240000 });
+  await page.waitForTimeout(800);
+  await page.evaluate(([v]) => {
+    const g = window.__game;
+    const p = g.battle.player;
+    const map = g.battle.map;
+    const ab = map.airbase;
+    const pt = map.fromAirbaseLocal(-ab.length / 2 + 150, 0);
+    // a real touchdown: 1.2 m above the runway, nose 3° up, sinking 1.2 m/s
+    p.place({ x: pt.x, y: ab.elevation + p.fm.gearHeight + 1.2, z: pt.z }, ab.heading, v, 3);
+    p.fm.velocity.set(ab.dirX * v, -1.2, ab.dirZ * v);
+    p.fm.onGround = false;
+    p.controls.throttle = 0;
+    p.fm.throttle = 0;
+    p.controls.gear = true;
+    p.fm.gearDown = true;
+    p.model.gearDeploy = 1;
+    window.__rollStart = { x: pt.x, z: pt.z };
+  }, [speed]);
+  for (const [op, arg] of keys) {
+    if (op === 'down') await page.keyboard.down(arg);
+    else if (op === 'up') await page.keyboard.up(arg);
+    else if (op === 'press') await page.keyboard.press(arg);
+    else await page.waitForTimeout(arg);
+  }
+  const res = await page.evaluate(() => {
+    const g = window.__game;
+    const p = g.battle.player;
+    const fm = p.fm;
+    const s = window.__rollStart;
+    return {
+      stopped: (fm.groundSpeed ?? fm.airspeed) < 2, gs: +(fm.groundSpeed ?? fm.airspeed).toFixed(1), onGround: fm.onGround, crashed: fm.crashed ? fm.crashReason : '',
+      dist: Math.round(Math.hypot(p.position.x - s.x, p.position.z - s.z)), brakeTemp: Math.round(fm.brakeTemp ?? -1),
+      autobrake: fm.autobrake ? `${fm.autobrake.mode}${fm.autobrake.active ? ' active' : ''}` : '-', reverser: fm.reverser ? fm.reverser.state : '-',
+      chute: fm.chute ? fm.chute.state : '-', spoilers: +(fm.spoilers || 0).toFixed(2),
+      radio: g.radio.log.slice(-5).map((e) => `${e.station && e.station.short}: ${e.display}`),
+    };
+  });
+  console.log(`\n=== ${label} (${jet})`, JSON.stringify(res));
+  await page.screenshot({ path: `${outDir}/${label}.png` });
+  if (!res.stopped || res.crashed) errors.push(`${label}: did not stop on the runway (${JSON.stringify(res)})`);
+}
 
 const runs = [
   { key: '0', jet: 'f16', label: 'm1-rings' },
@@ -154,6 +204,13 @@ for (const run of runs) {
   await page.screenshot({ path: `${outDir}/${run.label}.png` });
   if (errors.length > errBefore) console.log(`!! ${errors.length - errBefore} error(s) during ${run.label}`);
 }
+
+// airliner: autobrake MED armed (U x2), reversers after touchdown (J), stow at taxi speed
+await landingRoll('roll-a320-autobrake-reverse', 'a320', [['press', 'KeyU'], ['press', 'KeyU'], ['wait', 1500], ['press', 'KeyJ'], ['wait', 30000]], 70);
+// fighter with a drag chute: chute + toe brakes
+await landingRoll('roll-mig29-chute', 'mig29', [['wait', 600], ['press', 'KeyJ'], ['wait', 1500], ['down', 'KeyB'], ['wait', 26000], ['up', 'KeyB']], 72);
+// fighter without chute: toe brakes only, plus a radio request (M) once stopped
+await landingRoll('roll-f16-brakes', 'f16', [['wait', 400], ['down', 'KeyB'], ['wait', 26000], ['up', 'KeyB'], ['press', 'KeyM'], ['wait', 4000]], 70);
 
 // pause / resume / quit
 await page.keyboard.press('Escape');

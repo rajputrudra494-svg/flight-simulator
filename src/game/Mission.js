@@ -22,6 +22,8 @@ export class Mission {
     this.rings = null;
     this.messages = [];
     this.radioLog = [];
+    // story radio lines issued before the ATC exists (during setup) wait here
+    this.pendingRadio = [];
     this.score = 0;
     this.kills = { air: 0, ground: 0 };
     this.ringScore = 0;
@@ -259,7 +261,14 @@ export class Mission {
   radio(text) {
     this.radioLog.push({ text, time: this.time });
     if (this.radioLog.length > 4) this.radioLog.shift();
-    this.game.audio.speak(text, 'radio:' + text, 1);
+    const atc = this._atc();
+    if (atc) atc.missionRadio(text);
+    else this.pendingRadio.push(text);
+  }
+
+  _atc() {
+    const atc = this.game.atc;
+    return atc && atc.mission === this ? atc : null;
   }
 
   message(text, kind = 'info') {
@@ -274,7 +283,7 @@ export class Mission {
       this.civilLosses++;
       this.score -= 1500;
       this.message(`${entity.team === 'civil' ? 'CIVILIAN AIRLINER' : 'FRIENDLY'} DOWN  -1500`, 'fail');
-      this.game.audio.speak('Cease fire! Friendly down!', 'roe', 4);
+      this._atc()?.onCivilianDown(entity);
       if (this.def.noCivilianLosses) this._fail('Rules of engagement violated');
       return;
     }
@@ -283,13 +292,13 @@ export class Mission {
       const pts = entity.role === 'bomber' ? 250 : entity.ai && entity.ai.skill > 0.8 ? 600 : 200;
       this.score += pts;
       this.message(`${entity.label || 'BANDIT'} DESTROYED  +${pts}`, 'kill');
-      this.game.audio.speak(Math.random() < 0.5 ? 'Splash one!' : 'Target destroyed', 'kill', 2);
+      this._atc()?.onKill(entity, source);
     } else {
       this.kills.ground++;
       const pts = entity.score || 100;
       this.score += pts;
       this.message(`${entity.name} DESTROYED  +${pts}`, 'kill');
-      this.game.audio.speak('Good hit', 'kill', 3);
+      this._atc()?.onKill(entity, source);
     }
   }
 
@@ -396,6 +405,7 @@ export class Mission {
         p.rearm();
         p.health = p.maxHealth;
         this.message('REARMED AND REPAIRED', 'ring');
+        this._atc()?.onRearm();
       }
     }
 
@@ -442,7 +452,7 @@ export class Mission {
     this.failReason = reason;
     this.endTimer = 3.5;
     this.message('MISSION FAILED', 'fail');
-    this.game.audio.speak('Mission failed', 'end', 1);
+    this._atc()?.onMissionEnd('failed', reason);
   }
 
   _succeed() {
@@ -450,7 +460,7 @@ export class Mission {
     this.status = 'success';
     this.endTimer = 3;
     this.message('MISSION ACCOMPLISHED', 'success');
-    this.game.audio.speak('Mission accomplished', 'end', 1);
+    this._atc()?.onMissionEnd('success', '');
   }
 
   result() {

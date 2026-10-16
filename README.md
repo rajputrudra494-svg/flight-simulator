@@ -117,6 +117,46 @@ targets, ring courses and air traffic. Land on the runway to rearm and repair.
 - Weapons: lead-computing gun with tracers, IR and radar missiles with proportional navigation and
   proximity fuses, flares, SAMs, flak and ships. Terrain and buildings mask radar.
 
+### ATC, AWACS and crew radio
+A situational radio that reacts to what you are doing, with real phraseology (runways, headings and
+frequencies read digit by digit, "niner", flight levels, altimeter or QNH) and a different voice
+per speaker. Speech uses the browser's speech synthesis; every call also appears in the radio
+transcript on the HUD with the station tag and frequency.
+- **Tower, Ground, Approach and Departure** per airfield (Atoll, Red Rock, Alpine, Fjord,
+  Highland, Metro Bay International, Desert City International) with a consistent wind and QNH:
+  take-off clearance with braking-action reports on wet or snowy runways, departure or AWACS
+  hand-off, approach check-in, vectors onto the ILS, hand-off to the tower, landing clearance,
+  glide-path *low altitude alert*, *check wheels down*, *go around*, vacate and taxi instructions,
+  and crash calls. Your own read-backs are spoken too.
+- **AWACS "Overlord"**: check-in picture with BRAA (bearing, range, altitude, hot/cold/flanking/
+  beaming), new-group calls, splash and good-effects confirmations, cease-fire calls, nearest-field
+  steers when you are hit, leaving-the-area and radar-detection warnings, and the mission story lines.
+- **Crew and aircraft voices** in airliners: *Thrust set, eighty knots, V1, rotate, positive rate*,
+  radio-altimeter callouts down to *retard* on Airbus types, *Spoilers, reverse green, decel,
+  seventy knots*, GPWS (*sink rate, bank angle, too low gear*) and **TCAS** (*traffic, climb/descend,
+  clear of conflict*). Missile launch warnings call the clock position.
+- Traffic advisories for nearby airliners and background chatter between the controllers and the
+  AI traffic (or other AWACS flights in combat) when the frequency is quiet.
+- **M** asks for what fits the moment: take-off clearance, a bogey dope, the nearest target, vectors
+  for the ILS or confirmation of the landing clearance.
+- Settings: ATC level (full, essential clearances, mission calls only) and radio static on/off.
+
+### Brakes and the landing roll
+- Wheel brakes with **anti-skid** (pressure is modulated just below the skid point), brake **heat**
+  and **fade**, cooling on the ground and in the air, and hot-brake smoke.
+- **Autobrake** on airliners (U): LO, MED, MAX and RTO. It activates after main-gear touchdown with
+  the thrust at idle, holds a target deceleration, disarms on pedal braking or throttle, fires max
+  braking on a rejected take-off above 85 knots and holds the aircraft once stopped.
+- **Ground spoilers** that dump the lift at touchdown and double as speedbrakes in flight,
+  **thrust reversers** with a weight-on-wheels interlock and animated sleeves (J), and **drag
+  chutes** on the MiG-21, Tejas, Mirage 2000, MiG-29, Typhoon, Su-35, Su-57 and J-20 (J: deploy,
+  J again to jettison; deployed too fast it tears off).
+- Runway surface per map (dry, wet in the Alps and the Highlands, snow on the fjords) and slippery
+  grass; the nose settles onto the nose wheel by itself after touchdown.
+- Tyre smoke and chirp at touchdown, runway rumble, brake squeal and anti-skid chatter, and a
+  deceleration panel on the HUD (autobrake, DECEL, spoilers, reversers, chute, ground speed,
+  deceleration, brake pressure and temperature).
+
 ### Graphics that scale
 - Physically based sky with aerial-perspective fog, a night sky with moon, stars and city glow
 - Quadtree LOD terrain with procedural splatting, city streets and night lighting
@@ -146,6 +186,9 @@ Keyboard and mouse, gamepad (standard mapping) and touch (virtual stick, throttl
 | Padlock view | L | R3 |
 | Look around | Right-drag / numpad | |
 | Gear (and airliner flaps) / brakes | G / B | Back / L3 |
+| Autobrake (LO, MED, MAX, RTO) | U | D-pad right |
+| Thrust reversers / drag chute | J | D-pad left |
+| Radio request (ATC / AWACS) | M | |
 | Pause | Esc / P | Start |
 
 You can turn on **Mouse flight** (pointer-lock virtual stick), **Invert pitch**, **Lock-on
@@ -165,7 +208,7 @@ npm run preview    # serve the production build
 ## Tests
 
 ```bash
-npm run test:physics          # flight-model performance table for every aircraft (Node only)
+npm run test:physics          # flight-model and landing-roll tables for every aircraft (Node only)
 npm run build && npx vite preview --port 4173 &
 npx playwright install chromium
 npm run test:smoke -- http://localhost:4173/   # boots the game headless and flies missions
@@ -184,14 +227,15 @@ relative paths, so `dist/` can also be hosted on any static web server.
 
 ```
 src/
-  core/      Game loop, renderer & post-processing, quality presets, input, audio, saves
+  core/      Game loop, renderer & post-processing, quality presets, input, audio, radio, saves
   world/     Noise, maps, terrain LOD, atmosphere/fog, sky, water, clouds, trees, airbase,
              city layout (cityLayout.js) and city rendering (City.js)
   aircraft/  Jet catalogues (jets, fighters, airliners), procedural geometry & liveries,
              cockpits, flight model, aircraft entity, AI
   combat/    Guns, missiles, flares, ground & naval units
   fx/        Particles, ribbon trails, explosions, sonic booms
-  game/      Battle runtime, missions, objectives, rings, camera rig, targeting, targeting pod
+  game/      Battle runtime, missions, objectives, rings, camera rig, targeting, targeting pod,
+             air traffic control and AWACS (ATC.js)
   ui/        HUD, menus, touch controls
 scripts/     Physics and browser smoke tests
 ```

@@ -340,6 +340,8 @@ export class Menus {
         <h3>Audio</h3>
         <label>Master volume ${rng('volume', 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`)}</label>
         <label>Voice call-outs ${chk('voice')}</label>
+        <label>ATC &amp; radio traffic ${sel('atc', ['full', 'essential', 'off'], ['Full (readbacks, traffic, chatter)', 'Essential clearances', 'Mission calls only'])}</label>
+        <label>Radio static &amp; squelch ${chk('radioFx')}</label>
         <button class="danger" data-action="reset-progress">Reset campaign progress</button>
       </div>
     </div>`;
@@ -362,7 +364,10 @@ export class Menus {
       ['Padlock view', 'L', 'R3'],
       ['Look around', 'Right-drag mouse / numpad', 'Right stick'],
       ['Gear', 'G', 'Back'],
-      ['Air brake / wheel brakes', 'B (hold)', 'L3'],
+      ['Air brake / wheel brakes (anti-skid)', 'B (hold)', 'L3'],
+      ['Autobrake LO / MED / MAX / RTO', 'U', 'D-pad right'],
+      ['Thrust reversers / drag chute', 'J', 'D-pad left'],
+      ['Radio request (clearance, bogey dope, vectors)', 'M', ''],
       ['Pause', 'Esc / P', 'Start'],
     ];
     return `

@@ -76,7 +76,7 @@ export class HUD {
   }
 
   draw(dt, g) {
-    const { camera, battle, mission, targeting, cameraMode, settings, targetCam, weaponCam } = g;
+    const { camera, battle, mission, targeting, cameraMode, settings, targetCam, weaponCam, radio } = g;
     this.pipRect = targetCam && targetCam.active ? targetCam.rect : null;
     const ctx = this.ctx;
     this.clear();
@@ -208,7 +208,7 @@ export class HUD {
       ctx.fillStyle = HUD_DIM;
       ctx.fillText(`${this.maxG.toFixed(1)}`, lx + 90 * S, ly);
       // throttle
-      this._throttle(cx - 330 * S, cy + 40 * S, fm.throttle, fm.afterburner, S, p.controls.airbrake, p.controls.gear);
+      this._throttle(cx - 330 * S, cy + 40 * S, fm.throttle, fm.afterburner, S, p.controls.airbrake, p.controls.gear, fm.reverser);
 
       // --- Weapons block (master arm, selected missile, gun, flares)
       const rx = cx + 200 * S, ry = cy + 110 * S;
@@ -218,6 +218,7 @@ export class HUD {
         ctx.fillText(p.controls.gear ? 'FLAPS FULL' : 'CLEAN', rx, ry);
         ctx.fillText(`N1 ${Math.round(22 + fm.throttle * 76)}%`, rx, ry + 18 * S);
         ctx.fillText(`GW ${Math.round(fm.mass / 1000)}T`, rx, ry + 36 * S);
+        if (fm.autobrake && fm.autobrake.available) ctx.fillText(`A/BRK ${fm.autobrake.mode}`, rx, ry + 54 * S);
       } else {
         const isRadar = targeting && targeting.missileType === 'radar';
         ctx.fillStyle = HUD_DIM;
@@ -261,6 +262,9 @@ export class HUD {
       if (mission && mission.outTimer > 0) warns.push([`RETURN TO AREA ${Math.ceil(20 - mission.outTimer)}`, AMBER]);
       if (mission && mission.ceilingTimer > 0) warns.push([`${mission.ceilingMsg || 'TOO HIGH'} ${Math.ceil(8 - mission.ceilingTimer)}`, AMBER]);
       if (p.health < p.maxHealth * 0.3) warns.push(['DAMAGE CRITICAL', RED]);
+      if (fm.brakeTemp > 950) warns.push(['BRAKE OVERHEAT', RED]);
+      else if (fm.brakeTemp > 420) warns.push(['BRAKES HOT', AMBER]);
+      if (fm.chute && fm.chute.state === 'failed' && fm.onGround) warns.push(['CHUTE FAILED', AMBER]);
       ctx.textAlign = 'center';
       ctx.font = `bold ${20 * S}px ${FONT}`;
       warns.forEach(([t, c], i) => {
@@ -269,6 +273,8 @@ export class HUD {
         ctx.fillText(t, cx, cy + 150 * S + i * 26 * S);
       });
       this.warnings = { missile: p.incoming > 0, pullup: pullUp, stall: fm.stallWarn && !fm.onGround && agl > 5, radar: p.lockedBy > 0 };
+      // --- Deceleration panel (landing roll / rejected take-off)
+      if (fm.onGround || (p.controls.gear && agl < 400)) this._decelPanel(p, S, cx, cy, blink, metric);
     } else {
       this.warnings = { missile: false, pullup: false, stall: false, radar: false };
     }
@@ -285,6 +291,7 @@ export class HUD {
     }
     // --- Mission panel
     if (mission) this._missionPanel(mission, S);
+    if (radio) this._radioPanel(radio, S, blink);
     // --- Health
     this._health(p, S);
 
@@ -416,9 +423,10 @@ export class HUD {
     ctx.fillText(String(Math.round(heading) % 360).padStart(3, '0'), x, y + 30 * S);
   }
 
-  _throttle(x, y, thr, ab, S, airbrake, gear) {
+  _throttle(x, y, thr, ab, S, airbrake, gear, rev) {
     const ctx = this.ctx;
     const h = 120 * S, w = 8 * S;
+    const reversing = rev && rev.state && rev.state !== 'stowed';
     ctx.strokeStyle = HUD_DIM;
     ctx.strokeRect(x, y - h, w, h);
     ctx.fillStyle = ab > 0.01 ? AMBER : HUD_GREEN;
@@ -430,8 +438,14 @@ export class HUD {
     ctx.stroke();
     ctx.font = `${12 * S}px ${FONT}`;
     ctx.textAlign = 'center';
-    ctx.fillStyle = ab > 0.01 ? AMBER : HUD_GREEN;
-    ctx.fillText(ab > 0.01 ? 'AB' : `${Math.round(thr * 100)}`, x + w / 2, y + 12 * S);
+    if (reversing) {
+      // reverse thrust: amber while the doors move, green once deployed
+      ctx.fillStyle = rev.state === 'deployed' ? HUD_GREEN : AMBER;
+      ctx.fillText(rev.state === 'deployed' ? `REV ${Math.round((rev.power || 0) * 100)}` : 'REV', x + w / 2, y + 12 * S);
+    } else {
+      ctx.fillStyle = ab > 0.01 ? AMBER : HUD_GREEN;
+      ctx.fillText(ab > 0.01 ? 'AB' : `${Math.round(thr * 100)}`, x + w / 2, y + 12 * S);
+    }
     ctx.fillStyle = HUD_GREEN;
     if (airbrake) ctx.fillText('BRK', x + w / 2, y + 28 * S);
     if (gear) ctx.fillText('GEAR', x + w / 2, y + 44 * S);
@@ -898,15 +912,162 @@ export class HUD {
       ctx.fillStyle = col;
       ctx.fillText(m.text, this.w / 2, this.h * 0.24 + i * 24 * S);
     });
-    // radio log
-    ctx.textAlign = 'left';
-    ctx.font = `${14 * S}px ${UI_FONT}`;
-    const radio = mission.radioLog.filter((r) => mission.time - r.time < 8);
-    radio.forEach((r, i) => {
-      ctx.fillStyle = `rgba(150,220,255,${Math.min(1, (8 - (mission.time - r.time)))})`;
-      ctx.fillText(`📻 ${r.text}`, x, this.h * 0.36 + i * 20 * S);
-    });
     ctx.shadowBlur = 0;
+  }
+
+  // Radio transcript: station tag + frequency, a live RX indicator while a
+  // transmission is on the air, and the last few calls fading out.
+  _radioPanel(radio, S, blink) {
+    const ctx = this.ctx;
+    const x = 18 * S;
+    // keep clear of the HUD throttle/data block on the left and the radar scope below
+    const maxW = Math.max(190 * S, Math.min(this.w / 2 - 373 * S, 520 * S));
+    const yMax = this.h - 188 * S;
+    const now = radio.time;
+    const life = 14;
+    const entries = (radio.log || []).filter((e) => now - e.time < life).slice(-4);
+    const cur = radio.current;
+    if (!entries.length && !cur) return;
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+    ctx.shadowBlur = 4;
+    let y = this.h * 0.36;
+    // live channel strip
+    ctx.font = `600 ${12 * S}px ${FONT}`;
+    if (cur && cur.station) {
+      const st = cur.station;
+      ctx.fillStyle = blink ? 'rgba(255,90,70,0.95)' : 'rgba(255,90,70,0.45)';
+      ctx.beginPath();
+      ctx.arc(x + 5 * S, y - 1 * S, 4 * S, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = this._radioColor(st.kind, 1);
+      ctx.fillText(`${st.kind === 'player' ? 'TX' : 'RX'}  ${st.short || ''}${st.freq ? '  ' + st.freq : ''}`, x + 14 * S, y);
+    } else {
+      ctx.fillStyle = 'rgba(200,220,230,0.5)';
+      ctx.fillText('COM1', x, y);
+    }
+    y += 18 * S;
+    const lineH = 17 * S;
+    // lay out newest-first so the latest calls survive when space runs out
+    ctx.font = `600 ${12 * S}px ${FONT}`;
+    const tagW = ctx.measureText('AWACS ').width;
+    ctx.font = `${13.5 * S}px ${UI_FONT}`;
+    const blocks = [];
+    let used = 0;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const lines = this._wrap(String(entries[i].display || ''), maxW - tagW).slice(0, 3);
+      const hgt = lines.length * lineH + 3 * S;
+      if (y + used + hgt > yMax && blocks.length) break;
+      blocks.unshift({ e: entries[i], lines });
+      used += hgt;
+    }
+    for (const { e, lines } of blocks) {
+      const a = Math.max(0, Math.min(1, (life - (now - e.time)) / 2.5));
+      const st = e.station || {};
+      ctx.font = `600 ${12 * S}px ${FONT}`;
+      ctx.fillStyle = this._radioColor(st.kind || e.kind, a);
+      ctx.fillText(st.short || 'COM', x, y);
+      ctx.font = `${13.5 * S}px ${UI_FONT}`;
+      ctx.fillStyle = `rgba(232,242,246,${a * 0.95})`;
+      for (const ln of lines) {
+        ctx.fillText(ln, x + tagW, y);
+        y += lineH;
+      }
+      y += 3 * S;
+    }
+    ctx.restore();
+  }
+
+  _radioColor(kind, a) {
+    switch (kind) {
+      case 'awacs': return `rgba(255,200,110,${a})`;
+      case 'player': return `rgba(130,255,165,${a})`;
+      case 'crew': return `rgba(235,235,235,${a})`;
+      case 'pilot': return `rgba(205,185,255,${a})`;
+      case 'traffic': return `rgba(150,175,195,${a})`;
+      default: return `rgba(120,215,255,${a})`;
+    }
+  }
+
+  _wrap(text, maxW) {
+    const ctx = this.ctx;
+    const words = text.split(/\s+/);
+    const out = [];
+    let line = '';
+    for (const w of words) {
+      const t = line ? line + ' ' + w : w;
+      if (line && ctx.measureText(t).width > maxW) {
+        out.push(line);
+        line = w;
+      } else line = t;
+    }
+    if (line) out.push(line);
+    return out;
+  }
+
+  // Landing-roll / RTO panel: ground speed, deceleration, brake pressure and
+  // temperature, autobrake, spoilers, reversers or drag chute, runway state.
+  _decelPanel(p, S, cx, cy, blink, metric) {
+    const ctx = this.ctx;
+    const fm = p.fm;
+    const x = cx - 120 * S, y = cy + 205 * S;
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.font = `${12.5 * S}px ${FONT}`;
+    const gs = fm.groundSpeed ?? Math.hypot(p.velocity.x, p.velocity.z);
+    const items = [];
+    const ab = fm.autobrake;
+    if (ab && ab.available) {
+      const col = ab.mode === 'OFF' ? HUD_DIM : ab.active ? HUD_GREEN : CYAN;
+      items.push([`A/BRK ${ab.mode}${ab.mode !== 'OFF' && !ab.active ? ' ARM' : ''}`, col]);
+      if (ab.active && ab.decelOk) items.push(['DECEL', HUD_GREEN]);
+    }
+    if (fm.antiskid && fm.onGround) items.push(['A/SKID', blink ? AMBER : HUD_DIM]);
+    if ((fm.spoilers || 0) > 0.05) items.push(['SPLR', fm.spoilers > 0.95 ? HUD_GREEN : AMBER]);
+    const rev = fm.reverser;
+    if (rev && rev.available && rev.state !== 'stowed') items.push([rev.state === 'deployed' ? 'REV' : 'REV UNLK', rev.state === 'deployed' ? HUD_GREEN : AMBER]);
+    const ch = fm.chute;
+    if (ch && ch.available) {
+      const st = ch.state;
+      if (st === 'deploying' || st === 'deployed') items.push(['CHUTE', st === 'deployed' ? HUD_GREEN : AMBER]);
+      else if (st === 'failed') items.push(['CHUTE FAIL', RED]);
+      else if (st === 'jettisoned') items.push(['CHUTE JETT', HUD_DIM]);
+      else if (fm.onGround) items.push(['CHUTE RDY', HUD_DIM]);
+    }
+    let ix = x;
+    for (const [t, c] of items) {
+      ctx.fillStyle = c;
+      ctx.fillText(t, ix, y);
+      ix += ctx.measureText(t).width + 14 * S;
+    }
+    if (fm.onGround) {
+      // ground speed + deceleration
+      ctx.fillStyle = HUD_GREEN;
+      const gsTxt = metric ? `GS ${Math.round(gs * 3.6)} KMH` : `GS ${Math.round(gs * 1.944)} KT`;
+      ctx.fillText(gsTxt, x, y + 18 * S);
+      const dec = fm.decel || 0;
+      ctx.fillText(`DEC ${Math.max(0, dec / 9.81).toFixed(2)} G`, x + 120 * S, y + 18 * S);
+      // brake pressure bar
+      const bw = 90 * S, bh = 6 * S, by = y + 30 * S;
+      ctx.fillStyle = HUD_DIM;
+      ctx.fillText('BRK', x, by + 4 * S);
+      ctx.strokeStyle = HUD_DIM;
+      ctx.strokeRect(x + 34 * S, by, bw, bh);
+      ctx.fillStyle = fm.antiskid ? AMBER : HUD_GREEN;
+      ctx.fillRect(x + 34 * S, by, bw * Math.max(0, Math.min(1, fm.brakePressure || 0)), bh);
+      // brake temperature
+      const tmp = fm.brakeTemp ?? 15;
+      ctx.fillStyle = tmp > 950 ? RED : tmp > 420 ? AMBER : HUD_GREEN;
+      ctx.fillText(`${Math.round(tmp)}°C`, x + 34 * S + bw + 10 * S, by + 4 * S);
+      // runway surface
+      const rw = fm.runway;
+      if (rw && rw.condition && rw.condition !== 'dry') {
+        ctx.fillStyle = rw.condition === 'grass' ? HUD_DIM : AMBER;
+        ctx.fillText(`RWY ${rw.condition.toUpperCase()}`, x, by + 22 * S);
+      }
+    }
+    ctx.restore();
   }
 
   _health(p, S) {

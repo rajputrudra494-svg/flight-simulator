@@ -391,6 +391,17 @@ class FighterCockpit {
     const hp = p.health / p.maxHealth;
     ctx.fillStyle = hp > 0.5 ? GREEN : hp > 0.25 ? AMBER : RED;
     ctx.fillText(`HYD ${Math.round(hp * 100)}%`, x + w - 10, y + 22);
+    // wheel brakes and drag chute
+    const fm = p.fm;
+    const temp = fm.brakeTemp ?? 15;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = temp > 950 ? RED : temp > 420 ? AMBER : GREEN;
+    ctx.fillText(`BRK ${Math.round(temp)}°`, x + 10, y + 22);
+    if (fm.chute && fm.chute.available) {
+      const st = fm.chute.state;
+      ctx.fillStyle = st === 'failed' ? RED : st === 'stowed' ? GREEN : AMBER;
+      ctx.fillText(`CHUTE ${st === 'stowed' ? 'RDY' : st.toUpperCase()}`, x + 10, y + 44);
+    }
   }
 
   _hsi(ctx, x, y, w, h, p, g) {
@@ -597,7 +608,9 @@ class AirlinerCockpit {
         y.userData.wheel.rotation.z = -(c.roll || 0) * 0.9;
       } else y.rotation.set((c.pitch || 0) * 0.3, 0, -(c.roll || 0) * 0.3);
     }
-    for (const lv of this.levers) lv.rotation.x = -(p.fm.throttle - 0.4) * 0.9;
+    // reverse levers lift the thrust levers back past idle
+    const rev = p.fm.reverser ? p.fm.reverser.deploy || 0 : 0;
+    for (const lv of this.levers) lv.rotation.x = -(p.fm.throttle - 0.4) * 0.9 + rev * 0.3;
     this.redraw -= dt;
     if (this.redraw > 0) return;
     this.redraw = 0.1;
@@ -736,19 +749,23 @@ class AirlinerCockpit {
   _sd(ctx, x, y, w, h, p) {
     ctx.font = `15px ${MONO}`;
     ctx.textAlign = 'left';
+    const fm = p.fm;
+    const ab = fm.autobrake, rev = fm.reverser;
+    const temp = fm.brakeTemp ?? 15;
     const rows = [
-      ['GW', `${Math.round(p.fm.mass / 1000)} T`],
-      ['GS', `${Math.round(p.fm.airspeed * 1.944)} KT`],
-      ['VS', `${Math.round(p.velocity.y * 196.85)} FPM`],
-      ['G', p.fm.gLoad.toFixed(2)],
-      ['AOA', `${((p.fm.alpha * 180) / Math.PI).toFixed(1)}`],
-      ['BRK', p.controls.brakes ? 'ON' : 'OFF'],
+      ['GW', `${Math.round(fm.mass / 1000)} T`, GREEN],
+      ['GS', `${Math.round((fm.groundSpeed ?? fm.airspeed) * 1.944)} KT`, GREEN],
+      ['VS', `${Math.round(p.velocity.y * 196.85)} FPM`, GREEN],
+      ['A/BRK', ab && ab.available ? `${ab.mode}${ab.active ? (ab.decelOk ? ' DECEL' : ' ON') : ''}` : '---', ab && ab.active ? GREEN : CYAN],
+      ['BRK', `${Math.round((fm.brakePressure || 0) * 3000)} PSI${fm.antiskid ? ' A/SKID' : ''}`, fm.antiskid ? AMBER : GREEN],
+      ['TEMP', `${Math.round(temp)} °C`, temp > 950 ? RED : temp > 420 ? AMBER : GREEN],
+      ['REV', rev && rev.available ? rev.state.toUpperCase() : 'N/A', rev && rev.state === 'deployed' ? GREEN : rev && rev.state === 'transit' ? AMBER : WHITE],
     ];
-    rows.forEach(([k, v], i) => {
+    rows.forEach(([k, v, col], i) => {
       ctx.fillStyle = WHITE;
-      ctx.fillText(k, x + 20, y + 40 + i * 34);
-      ctx.fillStyle = GREEN;
-      ctx.fillText(v, x + 110, y + 40 + i * 34);
+      ctx.fillText(k, x + 20, y + 36 + i * 30);
+      ctx.fillStyle = col;
+      ctx.fillText(v, x + 100, y + 36 + i * 30);
     });
   }
 

@@ -222,6 +222,7 @@ function desertHeight(n, n2) {
 export const MAPS = {
   pacific: {
     id: 'pacific',
+    runway: { condition: 'dry', mu: 0.62 },
     name: 'Pacific Atoll',
     subtitle: 'Turquoise lagoons, volcanic islands',
     seed: 1337,
@@ -241,6 +242,7 @@ export const MAPS = {
   },
   canyon: {
     id: 'canyon',
+    runway: { condition: 'dry', mu: 0.62 },
     name: 'Red Canyon',
     subtitle: 'Desert mesas and a deep river gorge',
     seed: 4242,
@@ -260,6 +262,7 @@ export const MAPS = {
   },
   alps: {
     id: 'alps',
+    runway: { condition: 'wet', mu: 0.45 },
     name: 'Alpine Peaks',
     subtitle: 'Glaciers, knife-edge ridges and lakes',
     seed: 9001,
@@ -279,6 +282,7 @@ export const MAPS = {
   },
   arctic: {
     id: 'arctic',
+    runway: { condition: 'snow', mu: 0.3 },
     name: 'Frozen Fjords',
     subtitle: 'Low polar sun over icy channels',
     seed: 777,
@@ -298,6 +302,7 @@ export const MAPS = {
   },
   highlands: {
     id: 'highlands',
+    runway: { condition: 'wet', mu: 0.45 },
     name: 'Green Highlands',
     subtitle: 'Patchwork farmland, rivers and coast at sunset',
     seed: 2024,
@@ -317,6 +322,7 @@ export const MAPS = {
   },
   metro: {
     id: 'metro',
+    runway: { condition: 'dry', mu: 0.62 },
     name: 'Metro Bay',
     subtitle: 'Skyscrapers, a river estuary and the harbour',
     seed: 5150,
@@ -344,6 +350,7 @@ export const MAPS = {
   },
   desert: {
     id: 'desert',
+    runway: { condition: 'dry', mu: 0.6 },
     name: 'Desert Metropolis',
     subtitle: 'Supertall towers on a golden coast at dusk',
     seed: 8686,
@@ -395,6 +402,8 @@ export class MapRuntime {
     this.base = def.heightFn(this.n, this.n2);
     this.waterLevel = def.water.level;
     this.airbase = null;
+    // braking surface of the runway (rain in the mountains, snow up north)
+    this.runwayCondition = def.runway || { condition: 'dry', mu: 0.62 };
     this._findAirbase();
     this.city = def.city ? new CityLayout(this, def.city) : null;
   }

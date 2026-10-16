@@ -123,7 +123,7 @@ function msg(strings, ...vals) {
 
 // ---------------------------------------------------------------- facilities
 const FACILITIES = {
-  pacific: { name: 'Atoll', full: 'Atoll', tower: '118.700', ground: '121.800', approach: '119.450', departure: '124.350', awacs: '251.000' },
+  pacific: { name: 'Atoll', full: 'Atoll', tower: '118.700', ground: '121.800', approach: '119.450', departure: '124.350', awacs: '251.000', atis: '127.850' },
   canyon: { name: 'Red Rock', full: 'Red Rock', tower: '118.300', ground: '121.650', approach: '120.900', departure: '125.450', awacs: '264.300' },
   alps: { name: 'Alpine', full: 'Alpine', tower: '119.100', ground: '121.750', approach: '127.350', departure: '126.200', awacs: '255.600' },
   arctic: { name: 'Fjord', full: 'Fjord', tower: '118.950', ground: '121.900', approach: '123.800', departure: '124.700', awacs: '282.800' },
@@ -224,6 +224,9 @@ export class ATC {
     this.boomGood = false;
     this.chuteNoted = false;
     this.escortFlags = new WeakMap();
+    this.rangeFlags = new WeakMap();
+    this.pictureT = 0;
+    this.fieldThreat = false;
     this.g = { agl: 0, fieldAgl: 0, u: 0, v: 0, dist: 0, hdg: 0, gs: 0, vs: 0, altFt: 0 };
     this.p = null;
     this.s = null;
@@ -581,8 +584,8 @@ export class ATC {
       // only while actually holding on the runway (not already rolling or airborne)
       if (!p.fm.onGround || this.g.gs > 3) return;
       const rw = this._rwy(this._takeoffHdg());
-      this._say(this._me(this.st.tower), msg`${this.fac.name} tower, ${cs}, lined up runway ${rw}, with ${this.atis}, ready for departure.`, { priority: 2 });
-      this._clearTakeoff(false, true);
+      this._say(this._me(this.st.tower), msg`${this.fac.name} tower, ${cs}, holding short runway ${rw}, with ${this.atis}, ready for departure.`, { priority: 2 });
+      this._lineUp(true);
       return;
     }
     if (this._hasLand() && (!this._requiredRings() || this._ringsLeft() <= 3)) {
@@ -670,6 +673,24 @@ export class ATC {
     });
   }
 
+  // "Line up and wait" with the departure clearance, then cleared for take-off
+  _lineUp(firstContact) {
+    const s = this.s, cs = this.cs;
+    if (!s || s.cleared || s.lineUp) return;
+    s.lineUp = true;
+    const rw = this._rwy(this._takeoffHdg());
+    const alt = Math.round((this._fieldFt() + (this._combat() ? 6000 : 4000)) / 1000) * 1000;
+    s.assignedAlt = alt;
+    const sq = String(1200 + Math.floor(this.rand() * 5000)).replace(/[89]/g, '7');
+    s.squawk = sq;
+    const who = firstContact ? P(`, ${this.fac.name} tower`) : P('');
+    this._say(this.st.tower, msg`${cs}${who}, runway ${rw}, line up and wait. After departure fly runway heading, climb and maintain ${this._alt(alt)}, squawk ${P(sayDigits(sq), sq)}.`, {
+      priority: 2, expires: 20,
+      readback: { st: this._me(this.st.tower), m: msg`Line up and wait runway ${rw}, runway heading, ${this._alt(alt)}, squawk ${P(sayDigits(sq), sq)}, ${cs}.` },
+    });
+    this._after(9, () => this._clearTakeoff(false, false));
+  }
+
   _handoffDeparture() {
     const s = this.s, cs = this.cs;
     s.handoff = true;
@@ -702,6 +723,8 @@ export class ATC {
         tail = P(', proceed on course');
       }
       target = Math.min(target, 24000);
+      this.s.assignedAlt = target;
+      this.s.levelReported = false;
       this._say(this._me(dep), msg`${this.fac.name} departure, ${cs}, passing ${this._alt(cur)}.`, { priority: 1 });
       this._say(dep, msg`${cs}, ${this.fac.name} departure, radar contact, climb and maintain ${this._alt(target)}${tail}.`, {
         priority: 1, readback: { st: this._me(dep), m: msg`Climb and maintain ${this._alt(target)}, ${cs}.` },
@@ -910,12 +933,18 @@ export class ATC {
     }
     if (s.phase === 'takeoff') {
       s.maxRoll = Math.max(s.maxRoll, g.gs);
+      if (!s.civil && !s.tc.rolling && g.gs > 12 && fm.onGround) {
+        s.tc.rolling = true;
+        this._say(this._me(this.st.tower), msg`${this.cs}, rolling.`, { priority: 1, expires: 4 });
+      }
       if (!fm.onGround && g.agl > 3) {
         s.phase = 'air';
         s.departedHere = true;
         s.handoff = false;
         s.liftoffT = this.time;
+        s.levelReported = false;
         this.ap = this._freshApproach();
+        if (!s.civil) this._after(2, () => this._say(this._me(this.st.tower), msg`${this.cs}, airborne.`, { priority: 1, expires: 5 }));
       } else if (s.maxRoll > 31 && (fm.throttleCmd ?? c.throttle) <= 0.05 && (c.brakes || (fm.brakePressure || 0) > 0.3)) {
         this._rejectTakeoff();
       }
@@ -1080,6 +1109,14 @@ export class ATC {
         this._missileWarn(p, threats[0]);
       }
     }
+    // a missile that was chasing us has gone
+    if (p.incoming > 0) {
+      if (!s.threatened) s.threatHp = p.health;
+      s.threatened = true;
+    } else if (s.threatened) {
+      s.threatened = false;
+      if (p.health >= (s.threatHp ?? p.health) - 0.5) this._say(this._me(this.st.awacs), msg`${cs}, missile defeated.`, { priority: 1, expires: 5, key: 'defeated', minInterval: 8 });
+    }
     // TCAS
     if (s.civil && !p.fm.onGround) this._tcas(p);
     // leaving the area / ceiling
@@ -1103,7 +1140,26 @@ export class ATC {
     const clock = this._clock(p, pos);
     const dy = pos.y - p.position.y;
     const hl = dy > 600 ? ' high' : dy < -600 ? ' low' : '';
-    this.radio.warn(`Missile, ${sayNumber(clock)} o'clock${hl}!`, 'missile', 4);
+    this.radio.warn(`Missile, missile, ${sayNumber(clock)} o'clock${hl}!`, 'missile', 4);
+    return clock;
+  }
+
+  // Someone else on the frequency sees the launch and calls the break
+  _launchCall(p, clock) {
+    const s = this.s;
+    if (this.time - (s.launchCallT || -99) < 10) return;
+    s.launchCallT = this.time;
+    const dir = clock >= 7 && clock <= 11 ? 'left' : clock >= 1 && clock <= 5 ? 'right' : this.rand() < 0.5 ? 'left' : 'right';
+    this._say(this.st.awacs, msg`${this.cs}, missile launch, break ${dir}, flares, flares!`, { priority: 3, expires: 5, story: true });
+  }
+
+  // RWR spike when something locks you up (before it shoots)
+  onLocked(by, t) {
+    const p = this.battle.player;
+    if (this.disposed || !p || !p.alive || !by || !by.position || t < 0.7 || p.incoming > 0) return;
+    this._geom(p);
+    const clock = this._clock(p, by.position);
+    this.radio.warn(`Spike, ${sayNumber(clock)} o'clock!`, 'spike', 9);
   }
 
   _tcas(p) {
@@ -1156,6 +1212,8 @@ export class ATC {
     // combat picture
     if (this.checkedIn && this.time > this.groupHold) this._newGroups(p);
     this._escortWatch();
+    this._flightCalls(p);
+    this._combatCalls(p);
     if (s.phase === 'air') this._trafficAdvisory(p);
     // background chatter when the frequency is quiet
     if (this.radio.busy) this.quietT = 0;
@@ -1164,6 +1222,84 @@ export class ATC {
       this.quietT = 0;
       this.chatterGap = 20 + this.rand() * 30;
       this._chatter(p);
+    }
+  }
+
+  // Mid-air: gear left down, level-off reports, the 250 kt rule, altitude busts
+  _flightCalls(p) {
+    const s = this.s, g = this.g, fm = p.fm, cs = this.cs;
+    if (s.phase !== 'air') return;
+    const ias = (fm.ias || 0) * KT;
+    const ctl = this._combat() ? this.st.awacs : this.ap.stage === 'tower' ? this.st.tower : s.handoff && this.ap.stage === 'none' ? this.st.departure : this.st.approach;
+    if (s.departedHere && !s.gearCheck && p.controls.gear && ias > 250 && this.time - (s.liftoffT || 0) > 25 && this.ap.stage === 'none') {
+      s.gearCheck = true;
+      this._say(s.handoff ? ctl : this.st.tower, msg`${cs}, check your gear, it appears to be down.`, { priority: 2 });
+    }
+    if (s.assignedAlt && !s.levelReported && Math.abs(g.altFt - s.assignedAlt) < 300 && Math.abs(g.vs) < 3) {
+      s.levelReported = true;
+      this._say(this._me(ctl), msg`${cs}, level ${this._alt(s.assignedAlt)}.`, { priority: 1, readback: { st: ctl, m: msg`${cs}, roger.` } });
+    }
+    if (s.civil && !s.speedCall && g.altFt < 10000 && ias > 265 && this.ap.stage !== 'tower') {
+      s.speedCall = true;
+      this._say(ctl, msg`${cs}, reduce speed two five zero knots, speed restriction below one zero thousand.`, {
+        priority: 1, readback: { st: this._me(ctl), m: msg`Two five zero knots, ${cs}.` },
+      });
+    }
+    // altitude bust: well off the cleared altitude while still with departure
+    if (s.assignedAlt && s.levelReported && this.ap.stage === 'none' && !this._combat() && Math.abs(g.altFt - s.assignedAlt) > 1200 && this.time - (s.bustT || -99) > 60 && s.handoff) {
+      s.bustT = this.time;
+      this._say(ctl, msg`${cs}, check altitude, you were assigned ${this._alt(s.assignedAlt)}.`, { priority: 2 });
+    }
+  }
+
+  // Enemy approaching: AWACS range calls on the closest bandit, merge calls,
+  // periodic picture updates, and the tower when bandits threaten the field
+  _combatCalls(p) {
+    const air = this._hostileAir();
+    if (!air.length || !this.checkedIn) return;
+    const cs = this.cs;
+    let near = null, nd = Infinity;
+    for (const a of air) {
+      const d = a.position.distanceTo(p.position);
+      if (d < nd) { nd = d; near = a; }
+    }
+    const nm = nd / NM;
+    let fl = this.rangeFlags.get(near);
+    if (!fl) { fl = {}; this.rangeFlags.set(near, fl); }
+    const b = braa(p.position, near.position, near.velocity);
+    const hot = b.aspect === 'hot' || b.aspect === 'flanking';
+    if (nm < 1.5 && !fl.merged) {
+      fl.merged = fl.r3 = fl.r10 = fl.r20 = true;
+      this._say(this.st.awacs, msg`${cs}, Overlord, merged.`, { priority: 2, expires: 4 });
+    } else if (nm < 3.5 && !fl.r3 && hot) {
+      fl.r3 = fl.r10 = fl.r20 = true;
+      this._say(this.st.awacs, msg`${cs}, Overlord, bandit three miles, merge plot!`, { priority: 2, expires: 4 });
+    } else if (nm < 10.5 && !fl.r10 && hot) {
+      fl.r10 = fl.r20 = true;
+      this._say(this.st.awacs, msg`${cs}, Overlord, threat, ${this._braaP(p, near)}, ten miles.`, { priority: 2, expires: 6 });
+    } else if (nm < 20.5 && !fl.r20 && hot) {
+      fl.r20 = true;
+      this._say(this.st.awacs, msg`${cs}, Overlord, bandit ${this._braaP(p, near)}, closing.`, { priority: 1, expires: 8 });
+    }
+    // picture update when the frequency has been quiet for a while
+    if (this.time - (this.pictureT || 0) > 75 && this.quietT > 12 && nm > 12) {
+      this.pictureT = this.time;
+      const groups = this._groups(air);
+      const n = groups.length;
+      const g = this._nearestGroup(p, groups);
+      this._say(this.st.awacs, msg`${cs}, Overlord, picture, ${n === 1 ? P('single group') : P(`${sayNumber(n)} groups`, `${n} groups`)}, closest ${this._braaP(p, g.m)}.`, { priority: 1, expires: 8 });
+    }
+    // hostiles closing on the airfield while you are near it
+    const ab = this.map.airbase;
+    if (!this.fieldThreat && this.g.dist < 12000) {
+      for (const a of air) {
+        if (Math.hypot(a.position.x - ab.x, a.position.z - ab.z) < 16000) {
+          this.fieldThreat = true;
+          const dir = compassDir(bearingDeg(ab.x, ab.z, a.position.x, a.position.z));
+          this._say(this.st.tower, msg`All stations, ${this.fac.name} tower, be advised, hostile aircraft approaching the field from the ${dir}!`, { priority: 2 });
+          break;
+        }
+      }
     }
   }
 
@@ -1374,59 +1510,205 @@ export class ATC {
     if (station === this.st.awacs) this.groupHold = Math.max(this.groupHold, this.time + 3);
   }
 
-  request() {
+  // ---------------------------------------------------------------- pilot requests (ATC menu)
+  // What the pilot can sensibly ask for right now, most useful first.
+  menuOptions() {
     const p = this.battle.player;
-    if (!p || !p.alive || p.dying || this.ended || this.disposed) return;
-    if (this.time - this.lastReq < 2.5) return;
+    if (!p || !p.alive || p.dying || this.ended || this.disposed || !this.s) return [];
+    this._geom(p);
+    const s = this.s, ap = this.ap, opts = [];
+    const add = (id, label) => opts.push({ id, label });
+    const fac = this.fac.name;
+    if (p.fm.onGround) {
+      if (s.phase === 'rollout' && !s.vacate) add('taxi', `${fac} Tower: request taxi to the apron`);
+      else add('takeoff', `${fac} Tower: ready for departure`);
+      add('atis', `${fac} ATIS: listen to information ${this.atis}`);
+      add('radiocheck', `${fac} Tower: radio check`);
+    } else {
+      const air = this._hostileAir().length > 0;
+      const tgt = this._groundTargets().length > 0;
+      if (ap.stage === 'tower' && ap.cleared) add('confirmland', 'Tower: confirm cleared to land');
+      if (air) {
+        add('bogey', 'Overlord: bogey dope (closest group)');
+        add('picture', 'Overlord: request picture');
+      }
+      if (tgt) add('target', 'Overlord: request target location');
+      if (ap.stage === 'approach') add('vectors', `${fac} Approach: request vectors`);
+      else if (ap.stage === 'none' || ap.stage === 'goaround') add(this._combat() ? 'rtb' : 'ils', this._combat() ? 'Overlord: RTB, request steer home' : `${fac} Approach: request ILS, full stop`);
+      if (!s.mayday && p.health < p.maxHealth * 0.7) add('mayday', 'MAYDAY: declare emergency');
+      add('atis', `${fac} ATIS: information ${this.atis}`);
+      if (!s.mayday && p.health >= p.maxHealth * 0.7) add('mayday', 'MAYDAY: declare emergency');
+    }
+    if (this.radio.lastHeard) add('sayagain', 'Say again (repeat last call)');
+    return opts.slice(0, 6);
+  }
+
+  // M key without the menu (touch button): the most useful request
+  request() {
+    const o = this.menuOptions();
+    if (o.length) this.command(o[0].id);
+  }
+
+  command(id) {
+    const p = this.battle.player;
+    if (!p || !p.alive || p.dying || this.ended || this.disposed || !this.s) return;
+    if (this.time - this.lastReq < 1.2) return;
     this.lastReq = this.time;
     this._geom(p);
     const s = this.s, ap = this.ap, g = this.g, cs = this.cs;
-    if (p.fm.onGround) {
-      if (s.phase === 'rollout' && !s.vacate) {
+    const fac = this.fac.name;
+    switch (id) {
+      case 'taxi': {
         const gnd = this.st.ground;
-        this._say(this._me(this.st.tower), msg`${this.fac.name} tower, ${cs}, request taxi to the apron.`, { priority: 2 });
-        this._say(this.st.tower, msg`${cs}, vacate next taxiway, contact ground ${this._freqP(gnd)}.`, { priority: 2 });
+        this._say(this._me(this.st.tower), msg`${fac} tower, ${cs}, request taxi to the apron.`, { priority: 2 });
+        this._say(this.st.tower, msg`${cs}, vacate next taxiway, contact ground ${this._freqP(gnd)}.`, { priority: 2, readback: { st: this._me(this.st.tower), m: msg`Ground ${this._freqP(gnd)}, ${cs}.` } });
         s.vacate = true;
         return;
       }
-      const rw = this._rwy(this._takeoffHdg());
-      this._say(this._me(this.st.tower), msg`${this.fac.name} tower, ${cs}, holding in position runway ${rw}, with ${this.atis}, ready for departure.`, { priority: 2 });
-      this._clearTakeoff(true, true);
-      return;
+      case 'takeoff': {
+        const rw = this._rwy(this._takeoffHdg());
+        this._say(this._me(this.st.tower), msg`${fac} tower, ${cs}, holding in position runway ${rw}, with ${this.atis}, ready for departure.`, { priority: 2 });
+        if (s.cleared) this._clearTakeoff(true, true);
+        else this._lineUp(true);
+        return;
+      }
+      case 'atis': return this._atisBroadcast();
+      case 'radiocheck': {
+        const twr = this.st.tower;
+        const sig = this._signal(twr);
+        const read = sig > 0.75 ? P('read you five by five') : sig > 0.5 ? P('readability four, loud and clear') : P('readability three, you are broken');
+        this._say(this._me(twr), msg`${fac} tower, ${cs}, radio check ${this._freqP(twr)}.`, { priority: 2 });
+        this._say(twr, msg`${cs}, ${fac} tower, ${read}.`, { priority: 2 });
+        return;
+      }
+      case 'confirmland': {
+        const rw = this._rwy(this._landHdg(ap.dir));
+        this._say(this._me(this.st.tower), msg`Tower, ${cs}, confirm cleared to land.`, { priority: 2 });
+        this._say(this.st.tower, msg`${cs}, affirm, runway ${rw}, cleared to land.`, { priority: 2 });
+        return;
+      }
+      case 'bogey': {
+        const air = this._hostileAir();
+        this._say(this._me(this.st.awacs), msg`Overlord, ${cs}, bogey dope.`, { priority: 2 });
+        if (!air.length) return void this._say(this.st.awacs, msg`${cs}, Overlord, picture clean.`, { priority: 2 });
+        const near = this._nearestGroup(p, this._groups(air));
+        this._say(this.st.awacs, msg`${cs}, Overlord, group ${this._braaP(p, near.m)}.`, { priority: 2 });
+        for (const a of near.gr.members) this.known.add(a);
+        return;
+      }
+      case 'picture': {
+        const air = this._hostileAir();
+        this._say(this._me(this.st.awacs), msg`Overlord, ${cs}, request picture.`, { priority: 2 });
+        if (!air.length) return void this._say(this.st.awacs, msg`${cs}, Overlord, picture clean.`, { priority: 2 });
+        const groups = this._groups(air).map((gr) => {
+          let best = gr.members[0];
+          for (const m of gr.members) if (m.position.distanceTo(p.position) < best.position.distanceTo(p.position)) best = m;
+          return { gr, m: best, d: best.position.distanceTo(p.position) };
+        }).sort((a, b) => a.d - b.d).slice(0, 3);
+        const n = this._groups(air).length;
+        let text = msg`${cs}, Overlord, picture, ${n === 1 ? P('single group') : P(`${sayNumber(n)} groups`, `${n} groups`)}.`;
+        groups.forEach((gp, i) => {
+          const name = groups.length > 1 ? P(['Lead group', 'Second group', 'Third group'][i]) : P('Group');
+          text = msg`${text} ${name} ${this._braaP(p, gp.m)}.`;
+          for (const a of gp.gr.members) this.known.add(a);
+        });
+        this._say(this.st.awacs, text, { priority: 2 });
+        return;
+      }
+      case 'target': {
+        const tg = this._nearestTarget(p);
+        this._say(this._me(this.st.awacs), msg`Overlord, ${cs}, request target location.`, { priority: 2 });
+        if (!tg) return void this._say(this.st.awacs, msg`${cs}, Overlord, no targets remaining.`, { priority: 2 });
+        const b = braa(p.position, tg.position, null);
+        const r = Math.max(1, Math.round(b.rangeNm));
+        const bs = String(Math.round(b.bearing) % 360).padStart(3, '0');
+        const name = String(tg.name || 'target').toLowerCase();
+        this._say(this.st.awacs, msg`${cs}, Overlord, nearest target, ${P(name, tg.name || 'TARGET')}, bearing ${P(sayDigits(bs), bs)}, ${P(sayNumber(r), String(r))} miles.`, { priority: 2 });
+        return;
+      }
+      case 'vectors':
+        this._say(this._me(this.st.approach), msg`${fac} approach, ${cs}, request vectors.`, { priority: 2 });
+        this._after(1, () => this._vector(true));
+        return;
+      case 'ils': {
+        const rw = this._rwy(this._landHdg(this._pickDir()));
+        this._say(this._me(this.st.approach), msg`${fac} approach, ${cs}, information ${this.atis}, request vectors ILS runway ${rw}, full stop.`, { priority: 2 });
+        this._beginApproach('request');
+        return;
+      }
+      case 'rtb': {
+        const ab = this.map.airbase;
+        const b = String(Math.round(bearingDeg(p.position.x, p.position.z, ab.x, ab.z)) % 360).padStart(3, '0');
+        const r = Math.max(1, Math.round(g.dist / NM));
+        const app = this.st.approach;
+        this._say(this._me(this.st.awacs), msg`Overlord, ${cs}, RTB.`, { priority: 2 });
+        this._say(this.st.awacs, msg`${cs}, Overlord, copy RTB. Home plate bearing ${P(sayDigits(b), b)}, ${P(sayNumber(r), String(r))} miles. Contact ${fac} approach ${this._freqP(app)}.`, {
+          priority: 2, readback: { st: this._me(this.st.awacs), m: msg`${fac} approach ${this._freqP(app)}, ${cs}.` },
+        });
+        this._after(12, () => this._beginApproach('auto'));
+        return;
+      }
+      case 'mayday': return this._mayday(p);
+      case 'sayagain': {
+        const last = this.radio.lastHeard;
+        if (!last) return;
+        const st = last.station;
+        const name = st.kind === 'awacs' ? 'Overlord' : st.name;
+        this._say(this._me(st), msg`${name}, ${cs}, say again.`, { priority: 2 });
+        this.radio.transmit(st, `${cs.s}, I say again. ${last.text}`, { display: `I say again: ${last.display}`, priority: 2, signal: this._signal(st) });
+        return;
+      }
+      default:
+        return;
     }
-    if (ap.stage === 'tower' && ap.cleared) {
-      const rw = this._rwy(this._landHdg(ap.dir));
-      this._say(this._me(this.st.tower), msg`Tower, ${cs}, confirm cleared to land.`, { priority: 2 });
-      this._say(this.st.tower, msg`${cs}, affirm, cleared to land runway ${rw}.`, { priority: 2 });
-      return;
-    }
-    const air = this._hostileAir();
-    if (air.length) {
-      this._say(this._me(this.st.awacs), msg`Overlord, ${cs}, bogey dope.`, { priority: 2 });
-      const near = this._nearestGroup(p, this._groups(air));
-      this._say(this.st.awacs, msg`${cs}, Overlord, group ${this._braaP(p, near.m)}.`, { priority: 2 });
-      for (const a of near.gr.members) this.known.add(a);
-      return;
-    }
-    const tg = this._nearestTarget(p);
-    if (tg) {
-      this._say(this._me(this.st.awacs), msg`Overlord, ${cs}, request target location.`, { priority: 2 });
-      const b = braa(p.position, tg.position, null);
-      const r = Math.max(1, Math.round(b.rangeNm));
-      const bs = String(Math.round(b.bearing) % 360).padStart(3, '0');
-      const name = String(tg.name || 'target').toLowerCase();
-      this._say(this.st.awacs, msg`${cs}, Overlord, nearest target, ${P(name, tg.name || 'TARGET')}, bearing ${P(sayDigits(bs), bs)}, ${P(sayNumber(r), String(r))} miles.`, { priority: 2 });
-      return;
-    }
-    if (ap.stage === 'approach') {
-      this._say(this._me(this.st.approach), msg`${this.fac.name} approach, ${cs}, request vectors.`, { priority: 2 });
-      this._after(1, () => this._vector(true));
-      return;
-    }
+  }
+
+  // ATIS: the recorded airfield information loop
+  _atisBroadcast() {
+    const f = this.fac;
+    const st = { id: 'atis', name: `${f.name} ATIS`, short: 'ATIS', freq: f.atis || '127.850', kind: 'atc', voice: 'ground' };
+    const rw = this._rwy(this._expectedLandingHeading());
+    const temp = 4 + Math.floor(this.rand() * 26);
+    const brk = this._braking();
+    const cond = brk ? P(' ' + brk.s, ' ' + brk.d) : P(' Runway dry.');
+    const time = String(Math.floor(this.rand() * 24)).padStart(2, '0') + '50';
+    this.radio.transmit(st, `${f.name} information ${this.atis}, time ${sayDigits(time)} zulu. ${this._wind().s}. Visibility one zero kilometres or more. Temperature ${sayNumber(temp)}, ${this._altimeter().s}. Runway in use ${rw.s}.${cond.s} Advise on initial contact you have information ${this.atis}.`, {
+      display: `${f.name.toUpperCase()} INFO ${this.atis.toUpperCase()} ${time}Z ${this._wind().d}, VIS 10KM+, T${temp}, ${this._altimeter().d}, RWY ${rw.d}.${cond.d}`,
+      priority: 2, expires: 20, squelch: true, signal: 0.9,
+    });
+  }
+
+  // Declaring an emergency: everyone else gets out of the way
+  _mayday(p) {
+    const s = this.s, cs = this.cs, ap = this.ap;
+    if (s.mayday) return;
+    s.mayday = true;
+    this._geom(p);
+    const problem = p.health < p.maxHealth * 0.7 ? P('battle damage, losing hydraulics') : P('flight control problem');
+    const combat = this._combat();
+    const st = combat ? this.st.awacs : ap.stage === 'tower' ? this.st.tower : this.st.approach;
+    const ab = this.map.airbase;
+    const h = bearingDeg(p.position.x, p.position.z, ab.x, ab.z);
+    const turn = ((h - this.g.hdg + 540) % 360) - 180;
+    const hp = P(sayHeading(h), fmtHeading(h));
     const dir = this._pickDir();
     const rw = this._rwy(this._landHdg(dir));
-    this._say(this._me(this.st.approach), msg`${this.fac.name} approach, ${cs}, information ${this.atis}, request vectors ILS runway ${rw}, full stop.`, { priority: 2 });
-    this._beginApproach('request');
+    this._say(this._me(st), msg`Mayday, mayday, mayday. ${st.kind === 'awacs' ? 'Overlord' : st.name}, ${cs}, ${problem}, request immediate return.`, { priority: 3 });
+    if (combat) {
+      const r = Math.max(1, Math.round(this.g.dist / NM));
+      this._say(st, msg`${cs}, Overlord copies mayday. Turn ${turn < 0 ? 'left' : 'right'} heading ${hp}, ${this.fac.name} is ${P(sayNumber(r), String(r))} miles. Search and rescue is alerted.`, { priority: 3 });
+    } else {
+      this._say(st, msg`${cs}, roger mayday. Turn ${turn < 0 ? 'left' : 'right'} heading ${hp} direct ${this.fac.name}, runway ${rw}, cleared to land. Emergency services are standing by.`, {
+        priority: 3, readback: { st: this._me(st), m: msg`Heading ${hp}, cleared to land ${rw}, ${cs}.` },
+      });
+      // the approach is now ours: skip straight to the landing clearance
+      const fresh = this._freshApproach();
+      fresh.stage = 'tower';
+      fresh.dir = dir;
+      fresh.cleared = fresh.handoff = fresh.ils = true;
+      fresh.since = this.time;
+      this.ap = fresh;
+    }
   }
 
   onKill(entity, source) {
@@ -1491,7 +1773,8 @@ export class ATC {
     if (this.disposed || !p || !p.alive || !missile || missile.target !== p) return;
     this._geom(p);
     if (this.s) this.s.missileT = this.time;
-    this._missileWarn(p, missile);
+    const clock = this._missileWarn(p, missile);
+    if (this.s && clock) this._launchCall(p, clock);
   }
 
   onFox(type) {

@@ -22,8 +22,10 @@ export class Input {
       gun: false, missile: false, flare: false, target: false, camera: false, gear: false,
       airbrake: false, brakes: false, pause: false, lookX: 0, lookY: 0, look: false, view: false, help: false,
       cycleWeapon: false, lockView: false, weaponCam: false,
-      autobrake: false, reverser: false, radio: false,
+      autobrake: false, reverser: false, radio: false, menuPick: 0, menuClose: false,
     };
+    // while the ATC menu is open the number keys pick an entry instead of setting the throttle
+    this.menuMode = false;
     this.kb = { pitch: 0, roll: 0, yaw: 0 };
     this.gamepadIndex = null;
     this.lastDevice = 'keyboard';
@@ -142,12 +144,18 @@ export class Input {
     if (any('Numpad6')) { lookX += 1; look = true; }
     if (any('Numpad8')) { lookY -= 1; look = true; }
     if (any('Numpad2')) { lookY += 1; look = true; }
-    if (throttleAbs === null && hit('Digit1')) throttleAbs = 0.25;
-    if (hit('Digit2')) throttleAbs = 0.5;
-    if (hit('Digit3')) throttleAbs = 0.75;
-    if (hit('Digit4')) throttleAbs = 0.9;
-    if (hit('Digit5')) throttleAbs = 1.0;
-    if (hit('Digit0')) throttleAbs = 0;
+    let menuPick = 0;
+    const menuClose = this.menuMode && hit('Backspace');
+    if (this.menuMode) {
+      for (let k = 1; k <= 6; k++) if (hit('Digit' + k)) menuPick = k;
+    } else {
+      if (throttleAbs === null && hit('Digit1')) throttleAbs = 0.25;
+      if (hit('Digit2')) throttleAbs = 0.5;
+      if (hit('Digit3')) throttleAbs = 0.75;
+      if (hit('Digit4')) throttleAbs = 0.9;
+      if (hit('Digit5')) throttleAbs = 1.0;
+      if (hit('Digit0')) throttleAbs = 0;
+    }
 
     // Mouse
     const m = this.mouse;
@@ -232,7 +240,11 @@ export class Input {
     s.weaponCam = weaponCam;
     s.autobrake = autobrake || tb.has('autobrake');
     s.reverser = reverser || tb.has('reverser');
-    s.radio = radio || tb.has('radio');
+    s.radio = radio;
+    // the touch RADIO button has no number keys: it sends the top request directly
+    s.radioQuick = tb.has('radio');
+    s.menuPick = menuPick;
+    s.menuClose = menuClose;
     s.lookX = look ? lookX : s.lookX;
     s.lookY = look ? lookY : s.lookY;
     s.look = look;

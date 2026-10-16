@@ -51,6 +51,11 @@ export class Radio {
     this.current = null;
     this.log = [];
     this.queue = [];
+    // COM1 head: the frequency in use and the one before it (flip-flop standby)
+    this.active = null;
+    this.standby = null;
+    // last call from someone else, for "say again"
+    this.lastHeard = null;
     this._seq = 0;
     this._gapUntil = 0;
     this._keys = new Map();
@@ -139,6 +144,7 @@ export class Radio {
     this.queue.length = 0;
     this.log.length = 0;
     this._keys.clear();
+    this.active = this.standby = this.lastHeard = null;
     this._gapUntil = this.time + 0.5;
     this._fxOff();
   }
@@ -211,6 +217,13 @@ export class Radio {
     item.start = this.time;
     item.ended = false;
     this.current = item;
+    const st = item.station;
+    if (st.freq && (!this.active || this.active.freq !== st.freq)) {
+      // tuning to a new frequency pushes the old one to standby
+      if (this.active) this.standby = this.active;
+      this.active = { freq: st.freq, name: st.kind === 'player' ? (this.active ? this.active.name : '') : st.name };
+    } else if (st.freq && this.active && st.kind !== 'player' && st.kind !== 'traffic') this.active.name = st.name;
+    if (!item.machine && st.kind !== 'player' && st.kind !== 'crew') this.lastHeard = { station: st, text: item.text, display: item.display };
     if (item.log && !item.logged) {
       item.logged = true;
       this.log.push({ station: item.station, display: item.display, time: this.time, kind: item.station.kind });

@@ -9,6 +9,11 @@ import fs from 'node:fs';
 const base = process.argv[2] || 'http://localhost:4173/';
 const outDir = 'smoke-screenshots';
 fs.mkdirSync(outDir, { recursive: true });
+// recreate the folder per shot: something on this machine can delete it mid-run
+const snap = async (path) => {
+  fs.mkdirSync(outDir, { recursive: true });
+  await page.screenshot({ path });
+};
 
 async function waitForServer(url, ms = 60000) {
   const t0 = Date.now();
@@ -47,15 +52,15 @@ await page.goto(base);
 await page.waitForFunction(() => window.__game && window.__game.state === 'menu', null, { timeout: 240000 });
 console.log(`menu ready after ${Date.now() - t0} ms (quality ${quality})`);
 await page.waitForTimeout(1500);
-await page.screenshot({ path: `${outDir}/00-title.png` });
+await snap(`${outDir}/00-title.png`);
 for (const s of ['campaign', 'free', 'hangar', 'settings', 'controls']) {
   await page.evaluate((screen) => window.__game.menus.show(screen), s);
   await page.waitForTimeout(400);
-  await page.screenshot({ path: `${outDir}/01-${s}.png` });
+  await snap(`${outDir}/01-${s}.png`);
 }
 await page.evaluate(() => { window.__game.menus.selectedMission = 3; window.__game.menus.show('briefing'); });
 await page.waitForTimeout(300);
-await page.screenshot({ path: `${outDir}/02-briefing.png` });
+await snap(`${outDir}/02-briefing.png`);
 
 const telemetry = () => {
   const g = window.__game;
@@ -127,7 +132,10 @@ async function landingRoll(label, jet, keys, speed) {
     if (op === 'down') await page.keyboard.down(arg);
     else if (op === 'up') await page.keyboard.up(arg);
     else if (op === 'press') await page.keyboard.press(arg);
-    else await page.waitForTimeout(arg);
+    // game time, not wall time: software rendering in CI runs far slower than real time
+    else if (op === 'stop') {
+      await page.waitForFunction(() => { const fm = window.__game.battle.player.fm; return fm.crashed || (fm.onGround && (fm.groundSpeed ?? fm.airspeed) < 1.5); }, null, { timeout: arg, polling: 250 }).catch(() => {});
+    } else await page.waitForTimeout(arg);
   }
   const res = await page.evaluate(() => {
     const g = window.__game;
@@ -143,7 +151,7 @@ async function landingRoll(label, jet, keys, speed) {
     };
   });
   console.log(`\n=== ${label} (${jet})`, JSON.stringify(res));
-  await page.screenshot({ path: `${outDir}/${label}.png` });
+  await snap(`${outDir}/${label}.png`);
   if (!res.stopped || res.crashed) errors.push(`${label}: did not stop on the runway (${JSON.stringify(res)})`);
 }
 
@@ -201,16 +209,16 @@ for (const run of runs) {
   await page.waitForTimeout(2500);
   const tel = await page.evaluate(telemetry);
   console.log(JSON.stringify(tel));
-  await page.screenshot({ path: `${outDir}/${run.label}.png` });
+  await snap(`${outDir}/${run.label}.png`);
   if (errors.length > errBefore) console.log(`!! ${errors.length - errBefore} error(s) during ${run.label}`);
 }
 
 // airliner: autobrake MED armed (U x2), reversers after touchdown (J), stow at taxi speed
-await landingRoll('roll-a320-autobrake-reverse', 'a320', [['press', 'KeyU'], ['press', 'KeyU'], ['wait', 1500], ['press', 'KeyJ'], ['wait', 30000]], 70);
+await landingRoll('roll-a320-autobrake-reverse', 'a320', [['press', 'KeyU'], ['wait', 300], ['press', 'KeyU'], ['wait', 1500], ['press', 'KeyJ'], ['stop', 300000]], 70);
 // fighter with a drag chute: chute + toe brakes
-await landingRoll('roll-mig29-chute', 'mig29', [['wait', 600], ['press', 'KeyJ'], ['wait', 1500], ['down', 'KeyB'], ['wait', 26000], ['up', 'KeyB']], 72);
+await landingRoll('roll-mig29-chute', 'mig29', [['wait', 600], ['press', 'KeyJ'], ['wait', 1500], ['down', 'KeyB'], ['stop', 300000], ['up', 'KeyB']], 72);
 // fighter without chute: toe brakes only, plus a radio request (M) once stopped
-await landingRoll('roll-f16-brakes', 'f16', [['wait', 400], ['down', 'KeyB'], ['wait', 26000], ['up', 'KeyB'], ['press', 'KeyM'], ['wait', 4000]], 70);
+await landingRoll('roll-f16-brakes', 'f16', [['wait', 400], ['down', 'KeyB'], ['stop', 300000], ['up', 'KeyB'], ['press', 'KeyM'], ['wait', 400], ['press', 'Digit2'], ['wait', 5000]], 70);
 
 // pause / resume / quit
 await page.keyboard.press('Escape');

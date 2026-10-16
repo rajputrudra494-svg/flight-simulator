@@ -367,7 +367,7 @@ export class Menus {
       ['Air brake / wheel brakes (anti-skid)', 'B (hold)', 'L3'],
       ['Autobrake LO / MED / MAX / RTO', 'U', 'D-pad right'],
       ['Thrust reversers / drag chute', 'J', 'D-pad left'],
-      ['Radio request (clearance, bogey dope, vectors)', 'M', ''],
+      ['ATC menu: clearance, ATIS, picture, vectors, mayday, say again', 'M, then 1-6', ''],
       ['Pause', 'Esc / P', 'Start'],
     ];
     return `

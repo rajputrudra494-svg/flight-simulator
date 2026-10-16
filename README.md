@@ -137,8 +137,9 @@ transcript on the HUD with the station tag and frequency.
   clear of conflict*). Missile launch warnings call the clock position.
 - Traffic advisories for nearby airliners and background chatter between the controllers and the
   AI traffic (or other AWACS flights in combat) when the frequency is quiet.
-- **M** asks for what fits the moment: take-off clearance, a bogey dope, the nearest target, vectors
-  for the ILS or confirmation of the landing clearance.
+- **M** opens the ATC menu of transmissions that fit the moment (pick with 1-6): take-off clearance,
+  the ATIS, a radio check, a picture or bogey dope, the nearest target, ILS vectors, RTB, MAYDAY and
+  *say again*; the COM1 head on the HUD shows active and standby frequencies, TX/RX and signal strength.
 - Settings: ATC level (full, essential clearances, mission calls only) and radio static on/off.
 
 ### Brakes and the landing roll
@@ -188,7 +189,7 @@ Keyboard and mouse, gamepad (standard mapping) and touch (virtual stick, throttl
 | Gear (and airliner flaps) / brakes | G / B | Back / L3 |
 | Autobrake (LO, MED, MAX, RTO) | U | D-pad right |
 | Thrust reversers / drag chute | J | D-pad left |
-| Radio request (ATC / AWACS) | M | |
+| ATC / AWACS menu (pick with 1-6) | M | |
 | Pause | Esc / P | Start |
 
 You can turn on **Mouse flight** (pointer-lock virtual stick), **Invert pitch**, **Lock-on

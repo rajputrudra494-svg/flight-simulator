@@ -76,7 +76,7 @@ export class HUD {
   }
 
   draw(dt, g) {
-    const { camera, battle, mission, targeting, cameraMode, settings, targetCam, weaponCam, radio } = g;
+    const { camera, battle, mission, targeting, cameraMode, settings, targetCam, weaponCam, radio, atcMenu } = g;
     this.pipRect = targetCam && targetCam.active ? targetCam.rect : null;
     const ctx = this.ctx;
     this.clear();
@@ -292,6 +292,7 @@ export class HUD {
     // --- Mission panel
     if (mission) this._missionPanel(mission, S);
     if (radio) this._radioPanel(radio, S, blink);
+    if (atcMenu) this._atcMenuPanel(atcMenu, S);
     // --- Health
     this._health(p, S);
 
@@ -915,8 +916,8 @@ export class HUD {
     ctx.shadowBlur = 0;
   }
 
-  // Radio transcript: station tag + frequency, a live RX indicator while a
-  // transmission is on the air, and the last few calls fading out.
+  // Radio: a COM1 head (active / standby frequency, who is on the air, TX/RX
+  // lamp, signal strength) over the transcript of the last few calls.
   _radioPanel(radio, S, blink) {
     const ctx = this.ctx;
     const x = 18 * S;
@@ -927,27 +928,54 @@ export class HUD {
     const life = 14;
     const entries = (radio.log || []).filter((e) => now - e.time < life).slice(-4);
     const cur = radio.current;
-    if (!entries.length && !cur) return;
+    const act = radio.active;
+    if (!entries.length && !cur && !act) return;
     ctx.save();
     ctx.textAlign = 'left';
+    const y0 = this.h * 0.36 - 16 * S;
+    const W = 236 * S, H = 42 * S;
+    // radio head
+    ctx.fillStyle = 'rgba(4,14,20,0.55)';
+    ctx.strokeStyle = 'rgba(120,215,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y0, W, H, 5 * S) : ctx.rect(x, y0, W, H);
+    ctx.fill();
+    ctx.stroke();
     ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur = 4;
-    let y = this.h * 0.36;
-    // live channel strip
-    ctx.font = `600 ${12 * S}px ${FONT}`;
-    if (cur && cur.station) {
-      const st = cur.station;
-      ctx.fillStyle = blink ? 'rgba(255,90,70,0.95)' : 'rgba(255,90,70,0.45)';
-      ctx.beginPath();
-      ctx.arc(x + 5 * S, y - 1 * S, 4 * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = this._radioColor(st.kind, 1);
-      ctx.fillText(`${st.kind === 'player' ? 'TX' : 'RX'}  ${st.short || ''}${st.freq ? '  ' + st.freq : ''}`, x + 14 * S, y);
-    } else {
-      ctx.fillStyle = 'rgba(200,220,230,0.5)';
-      ctx.fillText('COM1', x, y);
+    ctx.shadowBlur = 3;
+    ctx.font = `600 ${9.5 * S}px ${FONT}`;
+    ctx.fillStyle = 'rgba(170,200,215,0.75)';
+    ctx.fillText('COM1', x + 8 * S, y0 + 14 * S);
+    // active frequency in LCD amber, standby dimmed
+    ctx.font = `700 ${16 * S}px ${FONT}`;
+    ctx.fillStyle = 'rgba(255,196,92,0.98)';
+    ctx.fillText(act ? act.freq : '---.---', x + 40 * S, y0 + 17 * S);
+    ctx.font = `${10.5 * S}px ${FONT}`;
+    ctx.fillStyle = 'rgba(200,215,225,0.6)';
+    ctx.textAlign = 'right';
+    ctx.fillText(`STBY ${radio.standby ? radio.standby.freq : '---.---'}`, x + W - 8 * S, y0 + 15 * S);
+    ctx.textAlign = 'left';
+    // who is talking: TX (you) green, RX amber-red blinking, idle dim
+    const st = cur && cur.station;
+    const lampOn = st ? (st.kind === 'player' ? 'rgba(110,255,150,0.95)' : blink ? 'rgba(255,110,70,0.95)' : 'rgba(255,110,70,0.5)') : 'rgba(120,140,150,0.35)';
+    ctx.fillStyle = lampOn;
+    ctx.beginPath();
+    ctx.arc(x + 12 * S, y0 + 31 * S, 3.6 * S, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `600 ${11 * S}px ${FONT}`;
+    ctx.fillStyle = st ? this._radioColor(st.kind, 1) : 'rgba(190,210,220,0.6)';
+    const label = st ? `${st.kind === 'player' ? 'TX' : 'RX'}  ${(st.kind === 'player' ? (act && act.name) || '' : st.name || st.short || '').toUpperCase()}` : (act && act.name ? act.name.toUpperCase() : 'MONITORING');
+    ctx.fillText(label.slice(0, 26), x + 21 * S, y0 + 35 * S);
+    // signal strength bars
+    const sig = st && st.kind !== 'player' && st.kind !== 'crew' ? cur.signal ?? 1 : st ? 1 : 0;
+    for (let i = 0; i < 5; i++) {
+      const on = sig > i / 5 + 0.05;
+      ctx.fillStyle = on ? 'rgba(130,230,255,0.9)' : 'rgba(130,160,175,0.25)';
+      const bh = (3 + i * 2) * S;
+      ctx.fillRect(x + W - 40 * S + i * 6 * S, y0 + 37 * S - bh, 4 * S, bh);
     }
-    y += 18 * S;
+    let y = y0 + H + 16 * S;
     const lineH = 17 * S;
     // lay out newest-first so the latest calls survive when space runs out
     ctx.font = `600 ${12 * S}px ${FONT}`;
@@ -976,6 +1004,43 @@ export class HUD {
       }
       y += 3 * S;
     }
+    ctx.restore();
+  }
+
+  // ATC request menu (M): numbered transmissions the pilot can make right now
+  _atcMenuPanel(menu, S) {
+    const ctx = this.ctx;
+    const W = 330 * S, rowH = 24 * S;
+    const H = 34 * S + menu.options.length * rowH + 22 * S;
+    const x = this.w - W - 18 * S;
+    const y = Math.max(this.h * 0.34, this.pipRect ? this.pipRect.y + this.pipRect.h + 16 : 0);
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,14,20,0.78)';
+    ctx.strokeStyle = 'rgba(255,196,92,0.6)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, W, H, 6 * S) : ctx.rect(x, y, W, H);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.font = `700 ${12 * S}px ${FONT}`;
+    ctx.fillStyle = 'rgba(255,196,92,0.98)';
+    ctx.fillText('ATC  -  SELECT TRANSMISSION', x + 12 * S, y + 21 * S);
+    ctx.fillStyle = 'rgba(255,196,92,0.35)';
+    ctx.fillRect(x + 12 * S, y + 28 * S, W - 24 * S, 1);
+    menu.options.forEach((o, i) => {
+      const ry = y + 34 * S + i * rowH + 16 * S;
+      const mayday = /MAYDAY/.test(o.label);
+      ctx.font = `700 ${12.5 * S}px ${FONT}`;
+      ctx.fillStyle = mayday ? 'rgba(255,95,80,0.95)' : 'rgba(255,196,92,0.95)';
+      ctx.fillText(String(i + 1), x + 14 * S, ry);
+      ctx.font = `${13 * S}px ${UI_FONT}`;
+      ctx.fillStyle = mayday ? 'rgba(255,150,140,0.95)' : 'rgba(232,242,246,0.95)';
+      ctx.fillText(o.label, x + 34 * S, ry);
+    });
+    ctx.font = `${10.5 * S}px ${FONT}`;
+    ctx.fillStyle = 'rgba(190,210,220,0.6)';
+    ctx.fillText(`1-${menu.options.length} TRANSMIT   M / BKSP CLOSE   ${Math.ceil(Math.max(0, menu.t))}s`, x + 12 * S, y + H - 9 * S);
     ctx.restore();
   }
 

@@ -22,7 +22,10 @@ export class Input {
       gun: false, missile: false, flare: false, target: false, camera: false, gear: false,
       airbrake: false, brakes: false, pause: false, lookX: 0, lookY: 0, look: false, view: false, help: false,
       cycleWeapon: false, lockView: false, weaponCam: false,
+      autobrake: false, reverser: false, radio: false, menuPick: 0, menuClose: false,
     };
+    // while the ATC menu is open the number keys pick an entry instead of setting the throttle
+    this.menuMode = false;
     this.kb = { pitch: 0, roll: 0, yaw: 0 };
     this.gamepadIndex = null;
     this.lastDevice = 'keyboard';
@@ -131,18 +134,28 @@ export class Input {
     const cycleWeapon = hit('KeyN');
     let lockView = hit('KeyY');
     const weaponCam = hit('KeyK');
+    // deceleration devices and radio
+    let autobrake = hit('KeyU');
+    let reverser = hit('KeyJ');
+    let radio = hit('KeyM');
     if (this.mouseClick.has(1)) lockView = true;
     let lookX = 0, lookY = 0, look = false;
     if (any('Numpad4')) { lookX -= 1; look = true; }
     if (any('Numpad6')) { lookX += 1; look = true; }
     if (any('Numpad8')) { lookY -= 1; look = true; }
     if (any('Numpad2')) { lookY += 1; look = true; }
-    if (throttleAbs === null && hit('Digit1')) throttleAbs = 0.25;
-    if (hit('Digit2')) throttleAbs = 0.5;
-    if (hit('Digit3')) throttleAbs = 0.75;
-    if (hit('Digit4')) throttleAbs = 0.9;
-    if (hit('Digit5')) throttleAbs = 1.0;
-    if (hit('Digit0')) throttleAbs = 0;
+    let menuPick = 0;
+    const menuClose = this.menuMode && hit('Backspace');
+    if (this.menuMode) {
+      for (let k = 1; k <= 6; k++) if (hit('Digit' + k)) menuPick = k;
+    } else {
+      if (throttleAbs === null && hit('Digit1')) throttleAbs = 0.25;
+      if (hit('Digit2')) throttleAbs = 0.5;
+      if (hit('Digit3')) throttleAbs = 0.75;
+      if (hit('Digit4')) throttleAbs = 0.9;
+      if (hit('Digit5')) throttleAbs = 1.0;
+      if (hit('Digit0')) throttleAbs = 0;
+    }
 
     // Mouse
     const m = this.mouse;
@@ -185,6 +198,8 @@ export class Input {
       if (edge(6) || edge(0)) missile = true;
       if (edge(1)) flare = true;
       if (b(10)) airbrake = brakes = true;
+      if (edge(14)) reverser = true;
+      if (edge(15)) autobrake = true;
       this._gpEdges = {
         target: edge(2), camera: edge(3), pause: edge(9), gear: edge(8), look: edge(11),
       };
@@ -223,6 +238,13 @@ export class Input {
     s.cycleWeapon = cycleWeapon || tb.has('weapon');
     s.lockView = lockView || tb.has('lockview');
     s.weaponCam = weaponCam;
+    s.autobrake = autobrake || tb.has('autobrake');
+    s.reverser = reverser || tb.has('reverser');
+    s.radio = radio;
+    // the touch RADIO button has no number keys: it sends the top request directly
+    s.radioQuick = tb.has('radio');
+    s.menuPick = menuPick;
+    s.menuClose = menuClose;
     s.lookX = look ? lookX : s.lookX;
     s.lookY = look ? lookY : s.lookY;
     s.look = look;
@@ -230,7 +252,7 @@ export class Input {
 
     this.pressed.clear();
     this.mouseClick.clear();
-    tb.delete('missile'); tb.delete('flare'); tb.delete('target'); tb.delete('camera'); tb.delete('gear'); tb.delete('pause'); tb.delete('weapon'); tb.delete('lockview');
+    tb.delete('missile'); tb.delete('flare'); tb.delete('target'); tb.delete('camera'); tb.delete('gear'); tb.delete('pause'); tb.delete('weapon'); tb.delete('lockview'); tb.delete('autobrake'); tb.delete('reverser'); tb.delete('radio');
     return s;
   }
 }

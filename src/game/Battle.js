@@ -36,7 +36,9 @@ export class Battle {
     this.effects.particles.setLighting(sunLight);
     this.trails.setLighting(sunLight);
     const map = this.map;
-    const groundResult = { h: 0, water: false, landable: false, runway: false, building: false };
+    const groundResult = { h: 0, water: false, landable: false, runway: false, building: false, mu: 0.62, condition: 'dry' };
+    const rwSurface = map.runwayCondition || { condition: 'dry', mu: 0.62 };
+    const grassMu = map.def.id === 'arctic' ? 0.25 : 0.35;
     this.env = {
       groundAt: (x, z, y = Infinity) => {
         const h = map.heightAt(x, z);
@@ -60,10 +62,15 @@ export class Battle {
         groundResult.h = h;
         groundResult.water = false;
         groundResult.runway = map.isOnRunway(x, z);
-        if (groundResult.runway) groundResult.landable = true;
-        else {
+        if (groundResult.runway) {
+          groundResult.landable = true;
+          groundResult.mu = rwSurface.mu;
+          groundResult.condition = rwSurface.condition;
+        } else {
           map.normalAt(x, z, _n);
           groundResult.landable = _n.y > 0.985;
+          groundResult.mu = grassMu;
+          groundResult.condition = 'grass';
         }
         return groundResult;
       },
@@ -137,6 +144,8 @@ export class Battle {
   onPlayerDamaged(amount, source) { this.emit('playerDamaged', amount, source); }
   onMissileLaunched(m) { this.emit('missileLaunched', m); }
   onFlares(owner) { this.emit('flares', owner); }
+  // flight-model events: touchdown, reversers, spoilers, autobrake, chute, RTO
+  onAircraftEvent(ac, ev) { this.emit('aircraftEvent', ac, ev); }
   onSonicBoom(ac) {
     this.effects.sonicBoom(ac);
     // the pilot only feels a jolt; outside observers hear it when the cone arrives

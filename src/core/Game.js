@@ -6,10 +6,12 @@ import { PRESETS, detectQuality, isMobileDevice } from './Quality.js';
 import { GameRenderer } from './Renderer.js';
 import { Input } from './Input.js';
 import { AudioEngine } from './Audio.js';
+import { Radio } from './Radio.js';
 import { Save } from './Save.js';
 import { World } from '../world/World.js';
 import { Battle } from '../game/Battle.js';
 import { Mission } from '../game/Mission.js';
+import { ATC } from '../game/ATC.js';
 import { MISSIONS } from '../game/missions.js';
 import { CameraRig } from '../game/CameraRig.js';
 import { Targeting } from '../game/Targeting.js';
@@ -36,6 +38,10 @@ const TIPS = [
   'Heavy jets need flaps (gear down) and patience: rotate at about 150 knots.',
   'Press K to ride along with your next missile on the weapon camera.',
   'Fly low between the skyscrapers to stay under enemy radar in the city.',
+  'Press M to talk to ATC: ask for take-off clearance, vectors to the ILS or a bogey dope from AWACS.',
+  'Airliners: set the autobrake with U before landing and press J after touchdown for reverse thrust.',
+  'Fighters with a drag chute (MiG-29, Su-35, Typhoon...) pop it with J on the landing roll.',
+  'Brakes get hot: on a snowy or wet runway let the reversers and chute do more of the work.',
 ];
 
 export class Game {
@@ -97,6 +103,10 @@ export class Game {
     this.audio = new AudioEngine();
     this.audio.volume = this.settings.volume;
     this.audio.voice = this.settings.voice;
+    this.radio = new Radio(this.audio);
+    this._syncRadioSettings();
+    this.atc = null;
+    this.atcMenu = null;
     this.menus = new Menus(this.dom.ui, this);
     this.touch = new TouchControls(this.dom.touchRoot, this.input);
     this.touch.show(false);
@@ -130,6 +140,11 @@ export class Game {
     this.input.settings.sensitivity = s.sensitivity;
   }
 
+  _syncRadioSettings() {
+    const s = this.settings;
+    this.radio.settings = { voice: s.voice !== false, chatter: s.atc || 'full', fx: s.radioFx !== false };
+  }
+
   _touchWanted() {
     const t = this.settings.touchControls;
     return t === 'on' || (t === 'auto' && isMobileDevice());
@@ -157,6 +172,7 @@ export class Game {
     }
     if (key === 'volume') this.audio.setVolume(val);
     if (key === 'voice') this.audio.voice = val;
+    if (['voice', 'atc', 'radioFx'].includes(key)) this._syncRadioSettings();
     if (['invertPitch', 'mouseFlight', 'sensitivity'].includes(key)) this._applyInputSettings();
     if (key === 'touchControls' && this.state === 'playing') this.touch.show(this._touchWanted());
     if (key === 'unlockAll' && this.menus.screen === 'settings') this.menus.show('settings', false);
@@ -288,6 +304,9 @@ export class Game {
     this.menus.hide();
     this.state = 'loading';
     this.hud.clear();
+    this.radio.reset();
+    this._closeAtcMenu();
+    if (this.atc) { this.atc.dispose(); this.atc = null; }
     const world = await this._buildWorld(def.map, def.time || 'default', 1);
     this._setLoading(true, 'Deploying forces…', 0.6);
     await nextFrame();
@@ -301,10 +320,11 @@ export class Game {
     battle.on('playerDamaged', (amt) => {
       this.damageFlash = Math.min(1, this.damageFlash + amt / 40);
       this.rig.shake = Math.max(this.rig.shake, 0.6);
+      this.atc?.onPlayerHit(amt);
     });
-    battle.on('missileLaunched', (m) => {
-      if (m.target === battle.player) this.audio.speak('Missile! Missile!', 'missile', 4);
-    });
+    battle.on('missileLaunched', (m) => this.atc?.onMissileLaunched(m));
+    battle.on('playerLocked', (by, t) => this.atc?.onLocked(by, t));
+    battle.on('aircraftEvent', (ac, ev) => this._onAircraftEvent(ac, ev));
     battle.on('aircraftCrashed', (ac) => {
       if (ac.isPlayer) this.hud.showCenter(ac.fm.crashReason || 'CRASHED', 3);
     });
@@ -312,10 +332,12 @@ export class Game {
       if (ac.isPlayer) {
         this.hud.showFlash('MACH 1  -  SOUND BARRIER', 2.4);
         mission.onSonicBoom?.(ac);
+        this.atc?.onSonicBoom(ac);
       }
     });
     mission.setup(battle);
     this.targeting = new Targeting(battle, this.settings);
+    this.atc = new ATC(this, battle, mission, this.radio);
     this._setLoading(true, 'Streaming terrain…', 0.8);
     await nextFrame();
     this.rig.setMode('chase');
@@ -331,7 +353,82 @@ export class Game {
     this.input.pressed.clear();
     this.state = 'playing';
     this.hud.showCenter(free ? 'FREE FLIGHT' : def.name.toUpperCase(), 3);
-    if (!free) mission.radio(def.type === 'Training' ? 'Tower: cleared for the course, good luck rookie.' : 'AWACS: you are cleared hot. Good hunting.');
+    this.atc.start();
+    for (const text of mission.pendingRadio) this.atc.missionRadio(text);
+    mission.pendingRadio.length = 0;
+  }
+
+  // Flight-model events (touchdown, reversers, chute, autobrake...) for the HUD and ATC
+  _onAircraftEvent(ac, ev) {
+    if (ac.isPlayer && this.state === 'playing') {
+      if (ev.type === 'chute' && ev.state === 'failed') this.hud.showCenter('CHUTE FAILED - DEPLOYED TOO FAST', 2);
+      else if (ev.type === 'autobrake' && ev.reason && ev.reason.startsWith('disarm')) this.hud.showCenter('AUTOBRAKE DISARM', 1.4);
+      else if (ev.type === 'rto') this.hud.showCenter('REJECTED TAKEOFF - MAX BRAKING', 2);
+      else if (ev.type === 'touchdown' && ev.firm) this.rig.shake = Math.max(this.rig.shake, Math.min(1, 0.3 - ev.vs * 0.08));
+    }
+    this.atc?.onAircraftEvent(ac, ev);
+  }
+
+  // M: the ATC request menu; 1-6 pick, M or Backspace close
+  _toggleAtcMenu() {
+    if (this.atcMenu) return this._closeAtcMenu();
+    const options = this.atc ? this.atc.menuOptions() : [];
+    if (!options.length) return;
+    this.atcMenu = { options, t: 10 };
+    this.input.menuMode = true;
+    this.audio.click();
+  }
+
+  _closeAtcMenu() {
+    this.atcMenu = null;
+    this.input.menuMode = false;
+  }
+
+  _cycleAutobrake(p) {
+    const fm = p.fm;
+    if (!fm.autobrake || !fm.autobrake.available) {
+      this.hud.showCenter('NO AUTOBRAKE - USE B TO BRAKE', 1.2);
+      return;
+    }
+    const mode = fm.cycleAutobrake();
+    this.hud.showCenter(`AUTOBRAKE ${mode}`, 1.2);
+    this.audio.click();
+  }
+
+  // J: thrust reversers on airliners, drag chute on fighters that carry one
+  _toggleDecelDevice(p) {
+    const fm = p.fm, c = p.controls;
+    if (fm.reverser && fm.reverser.available) {
+      if (!fm.onGround) {
+        this.hud.showCenter('REVERSE INHIBITED - WEIGHT ON WHEELS', 1.4);
+        c.reverse = false;
+        return;
+      }
+      if (!c.reverse && fm.groundSpeed < 2) {
+        this.hud.showCenter('REVERSE INHIBITED - TOO SLOW', 1.2);
+        return;
+      }
+      c.reverse = !c.reverse;
+      if (c.reverse && c.throttle > 0.1) c.throttle = 0;
+      this.hud.showCenter(c.reverse ? 'REVERSE THRUST' : 'REVERSERS STOWED', 1);
+      return;
+    }
+    if (fm.chute && fm.chute.available) {
+      const st = fm.chute.state;
+      if (st === 'deploying' || st === 'deployed') {
+        c.chute = false;
+        this.hud.showCenter('CHUTE JETTISON', 1);
+      } else if (st !== 'stowed') {
+        this.hud.showCenter('CHUTE ALREADY USED', 1.2);
+      } else if (!fm.onGround) {
+        this.hud.showCenter('CHUTE: ON THE LANDING ROLL ONLY', 1.4);
+      } else {
+        c.chute = true;
+        this.hud.showCenter('DRAG CHUTE', 1);
+      }
+      return;
+    }
+    this.hud.showCenter('NO REVERSERS OR CHUTE - USE B TO BRAKE', 1.4);
   }
 
   onPlayerSpawned(ac) {
@@ -340,6 +437,7 @@ export class Game {
   }
 
   onMissionEnd(result) {
+    this._closeAtcMenu();
     this.lastResult = result;
     const before = JET_ORDER.filter((id) => this.save.isJetUnlocked(JETS[id]));
     if (!this.currentMission.free) this.save.recordResult(result);
@@ -357,6 +455,8 @@ export class Game {
     this.state = 'paused';
     this.input.releasePointer();
     this.audio.silence();
+    this.radio.pause();
+    this._closeAtcMenu();
     this.touch.show(false);
     this.menus.history = [];
     this.menus.show('pause', false);
@@ -389,6 +489,8 @@ export class Game {
     this.menus.hide();
     this.touch.show(false);
     this.audio.silence();
+    this.radio.reset();
+    if (this.atc) { this.atc.dispose(); this.atc = null; }
     this.hud.clear();
     await this._loadMenuWorld();
     this.menus.history = [];
@@ -413,6 +515,8 @@ export class Game {
       this.dom.fps.style.display = this.settings.showFps ? 'block' : 'none';
     }
     if (this.state === 'boot' || !this.world) return;
+    // the radio keeps talking through the results screen; it is reset on launch/quit
+    if (this.state === 'playing' || this.state === 'results') this.radio.update(dt);
     if (this.state === 'menu' || ((this.state === 'results' || this.state === 'paused') && !this.battle)) {
       this._updateMenuCamera(dt);
       this.world.update(dt, this.camera, this.menuFocus);
@@ -459,6 +563,16 @@ export class Game {
       c.gun = input.gun;
       c.airbrake = input.airbrake;
       c.brakes = input.brakes;
+      if (input.autobrake) this._cycleAutobrake(p);
+      if (input.reverser) this._toggleDecelDevice(p);
+      if (input.radioQuick && this.atc) this.atc.request();
+      if (input.radio && this.atc) this._toggleAtcMenu();
+      if (this.atcMenu) {
+        this.atcMenu.t -= dt;
+        const pick = input.menuPick ? this.atcMenu.options[input.menuPick - 1] : null;
+        if (pick) this.atc.command(pick.id);
+        if (pick || input.menuClose || this.atcMenu.t <= 0) this._closeAtcMenu();
+      }
       if (input.gear) {
         c.gear = !c.gear;
         this.hud.showCenter(c.gear ? 'GEAR DOWN' : 'GEAR UP', 1.2);
@@ -470,7 +584,7 @@ export class Game {
           const locked = this.targeting.fire();
           const call = this.targeting.missileType === 'radar' ? 'FOX 3!' : 'FOX 2!';
           this.hud.showCenter(locked ? call : 'NO LOCK - UNGUIDED', 1);
-          if (locked) this.audio.speak(this.targeting.missileType === 'radar' ? 'Fox three' : 'Fox two', 'fox', 2);
+          if (locked) this.atc?.onFox(this.targeting.missileType);
           if (this.settings.weaponCam && this.targeting.lastMissile) this.rig.followWeapon(this.targeting.lastMissile);
         }
       }
@@ -507,6 +621,7 @@ export class Game {
     battle.update(dt);
     mission.update(dt);
     if (this.state !== 'playing') return;
+    this.atc?.update(dt);
 
     // camera + world
     const shake = this.settings.cameraShake ? battle.effects.shake : 0;
@@ -518,10 +633,16 @@ export class Game {
     const cockpit = this.rig.mode === 'cockpit';
     if (p) {
       this.audio.setListener(this.camera.position, new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion));
+      const rev = p.fm.reverser;
       this.audio.updateEngine({
-        active: p.alive, throttle: p.fm.throttle, ab: p.fm.afterburner, speed: p.fm.airspeed, cockpit,
+        // reverse thrust spools the engines up even with the levers at idle
+        active: p.alive, throttle: Math.max(p.fm.throttle, rev ? (rev.power || 0) * 0.8 : 0), ab: p.fm.afterburner, speed: p.fm.airspeed, cockpit,
         gLoad: p.fm.gLoad, airbrake: p.controls.airbrake, gunFiring: p.gunFiring, gunRate: p.spec.weapons.gunRate,
         turbofan: !!p.spec.flight.noAB, supersonicExternal: p.fm.mach > 1.0 && !cockpit,
+      });
+      this.audio.updateGround?.({
+        onGround: p.alive && p.fm.onGround, speed: p.fm.groundSpeed ?? p.fm.airspeed, brake: p.fm.brakePressure || 0,
+        antiskid: !!p.fm.antiskid, reverser: rev ? rev.power || 0 : 0, spoilers: p.fm.spoilers || 0, cockpit,
       });
     }
 
@@ -554,10 +675,10 @@ export class Game {
       tc.present({ x: window.innerWidth - w - 18, y: 70, w, h });
     } else tc.rect = null;
     const wc = this.rig.mode === 'weapon' && this.rig.weapon ? (this.rig.weapon.alive ? `${Math.round(this.rig.weapon.vel.length() * 1.944)} KT` : 'IMPACT') : null;
-    this.hud.draw(dt, { camera: this.camera, battle, mission, targeting: this.targeting, cameraMode: this.rig.mode, settings: this.settings, targetCam: tc.rect ? tc : null, weaponCam: wc });
+    this.hud.draw(dt, { camera: this.camera, battle, mission, targeting: this.targeting, cameraMode: this.rig.mode, settings: this.settings, targetCam: tc.rect ? tc : null, weaponCam: wc, radio: this.radio, atcMenu: this.atcMenu });
     if (p && p.alive) {
       this.audio.updateWarnings({ seeker: this.targeting.seeker, ...this.hud.warnings }, dt);
-      if (this.hud.warnings.pullup) this.audio.speak('Pull up! Pull up!', 'pullup', 3);
+      if (this.hud.warnings.pullup) this.radio.warn('Pull up, pull up', 'pullup', 3);
     } else this.audio.updateWarnings({ seeker: 'none' }, dt);
   }
 }

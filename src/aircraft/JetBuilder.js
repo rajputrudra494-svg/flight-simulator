@@ -3,6 +3,8 @@
 // nozzles with afterburner flames, missiles on pylons, gear and nav lights.
 // Airliners add turbofan pods, winglets, bogie gear and painted cabin
 // windows; supersonic jets get a transonic vapour cone and high-G wing vapour.
+// Deceleration devices: airliner ground spoilers, translating thrust-reverser
+// sleeves on turbofan pods and an animated drag chute on fighters that carry one.
 import * as THREE from 'three';
 import { loft, Surface, mirrorX, lathe, mergeGeometries, sampleSection } from './geometry.js';
 import { getLiveryTextures, getRoundelTexture, getTextTexture, getAirlinerTextures, getGlowTexture } from './jetTextures.js';
@@ -124,6 +126,27 @@ function makeFlameMaterial(core = false) {
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
   });
+}
+
+// Thin flat-shaded slab from a quad (p0..p3 counter-clockwise seen from above)
+function slabGeometry(q, th) {
+  const down = (v) => new THREE.Vector3(v.x, v.y - th, v.z);
+  const b = q.map(down);
+  const tris = [];
+  const quad = (a, bb, c, dd) => tris.push(a, bb, c, a, c, dd);
+  quad(q[0], q[3], q[2], q[1]);
+  quad(b[0], b[1], b[2], b[3]);
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    quad(q[i], q[j], b[j], b[i]);
+  }
+  const pos = new Float32Array(tris.length * 3);
+  tris.forEach((v, i) => pos.set([v.x, v.y, v.z], i * 3));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array((tris.length) * 2), 2));
+  g.computeVertexNormals();
+  return g;
 }
 
 // --- Condensation: transonic vapour cone and high-G wing vapour ----------------
@@ -261,6 +284,7 @@ export class JetModel {
     const mats = sharedMaterials(spec, quality);
     this.mats = mats;
     this.ownMaterials = [];
+    this.reversers = [];
     const root = new THREE.Group();
     root.name = spec.id;
     this.root = root;
@@ -389,7 +413,7 @@ export class JetModel {
     }
 
     // Lifting surfaces
-    this.controls = { ailerons: [], flaps: [], stabs: [], canards: [], rudders: [], elevators: [] };
+    this.controls = { ailerons: [], flaps: [], stabs: [], canards: [], rudders: [], elevators: [], spoilers: [] };
     const buildSurface = (stations, { controls = [], vertical = false, allMoving = null, xform = null, mirror = false, kind = null, material = mats.body, mount = null, uvBox = null }) => {
       const surf = new Surface(ZW(stations), { vertical });
       const ranges = controls.filter(Boolean).map((r) => ({ s0: r.range[0], s1: r.range[1], hinge: r.range[2], kind: r.kind })).sort((a, b) => a.s0 - b.s0);
@@ -468,6 +492,33 @@ export class JetModel {
       controls: [d.wing.aileron && { range: d.wing.aileron, kind: 'ailerons' }, d.wing.flap && { range: d.wing.flap, kind: 'flaps' }],
       mirror: true, material: mats.wing, mount: wingMount,
     });
+    // ground spoilers / speedbrakes: thin panels on the upper wing ahead of the flaps,
+    // hinged at their leading edge
+    if (airliner && d.wing.flap && spec.flight.brakes && spec.flight.brakes.spoilers) {
+      const [f0, f1, fh] = d.wing.flap;
+      const c0 = Math.max(0.45, fh - 0.17), c1 = fh - 0.015;
+      const n = 4, gap = 0.012;
+      const p = { x: 0, y: 0, z: 0 };
+      const P = (sp, c) => { wingSurf.point(sp, c, 1, p); return new THREE.Vector3(p.x, p.y + 0.02, p.z); };
+      for (let i = 0; i < n; i++) {
+        const s0 = f0 + 0.04 + ((f1 - f0 - 0.06) * i) / n + gap, s1 = f0 + 0.04 + ((f1 - f0 - 0.06) * (i + 1)) / n - gap;
+        const a0 = P(s0, c0), a1 = P(s1, c0), b1 = P(s1, c1), b0 = P(s0, c1);
+        for (const side of [1, -1]) {
+          const m = (v) => new THREE.Vector3(v.x * side, v.y, v.z);
+          const A0 = m(a0), A1 = m(a1), B1 = m(b1), B0 = m(b0);
+          // mirroring flips the winding: keep the faces pointing out on the left wing
+          const geo = slabGeometry(side > 0 ? [A0, A1, B1, B0] : [A1, A0, B0, B1], 0.04);
+          geo.translate(-A0.x, -A0.y, -A0.z);
+          const pivot = new THREE.Group();
+          pivot.position.copy(A0);
+          root.add(pivot);
+          add(geo, mats.wing, pivot);
+          // same axis convention as the flaps: positive = trailing edge down
+          const axis = A1.clone().sub(A0).normalize();
+          this.controls.spoilers.push({ pivot, axis, side, base: new THREE.Quaternion() });
+        }
+      }
+    }
     if (d.lex) buildSurface(d.lex.stations, { mirror: true, material: mats.body });
     if (d.stab) {
       if (d.stab.elevator) buildSurface(d.stab.stations, { controls: [{ range: d.stab.elevator, kind: 'elevators' }], mirror: true, material: mats.wing });
@@ -654,6 +705,7 @@ export class JetModel {
       return g;
     };
     let lowest = 0;
+    this.mainWheelPoints = [];
     const leg = (x, g, defR, isNose) => {
       const r = g.r ?? defR;
       const strutR = Math.max(0.06, r * 0.16);
@@ -695,6 +747,7 @@ export class JetModel {
         this.gear.add(door);
       }
       lowest = Math.min(lowest, wy - r);
+      if (!isNose) this.mainWheelPoints.push(new THREE.Vector3(x, wy - r, g.z - cg));
     };
     const ng = d.gear.nose;
     leg(0, ng, 0.28, true);
@@ -707,6 +760,7 @@ export class JetModel {
     this.gearHeight = -lowest;
     this.gearZ = { nose: ng.z - cg, main: mg.z - cg };
     this.gearDeploy = opts.gear ? 1 : 0;
+    this.chuteRig = spec.flight.brakes && spec.flight.brakes.chute > 0 ? this._buildChute(spec.flight.brakes.chute, d, cg) : null;
 
     // Lights: nav lights, strobes and beacons, each with a soft glow sprite
     this.lightSprites = [];
@@ -845,6 +899,14 @@ export class JetModel {
     spinner.rotation.x = -Math.PI / 2;
     spinner.position.z = len * 0.16 - r * 0.25;
     g.add(spinner);
+    // thrust reverser: the aft cowl slides back and uncovers a dark cascade band
+    if (this.spec.flight.brakes && this.spec.flight.brakes.reverser > 0) {
+      const cascade = add(lathe([[r * 1.004, len * 0.46], [r * 1.004, len * 0.6]], 32), mats.dark, g, false);
+      cascade.visible = false;
+      const sleeve = add(lathe([[r * 1.01, len * 0.47], [r * 1.0, len * 0.6], [r * 0.91, len * 0.7], [r * 0.75, len * 0.86]], 32), mat, g);
+      sleeve.visible = false;
+      this.reversers.push({ sleeve, cascade, travel: len * 0.13 });
+    }
     // core cowl, nozzle and plug
     add(lathe([[r * 0.66, len * 0.8], [r * 0.6, len * 0.95], [r * 0.48, len * 1.08]], 28), mats.metal, g);
     add(lathe([[r * 0.38, len * 1.04], [r * 0.24, len * 1.16], [0.02, len * 1.26]], 20), mats.metalDark, g, false);
@@ -888,6 +950,14 @@ export class JetModel {
     set(this.controls.elevators, () => -deg(22) * pitch);
     set(this.controls.canards, () => deg(16) * pitch);
     set(this.controls.rudders, () => deg(22) * yaw);
+    const spl = input.spoilers || 0;
+    set(this.controls.spoilers, () => -deg(50) * spl);
+    const rev = input.reverser || 0;
+    for (const rv of this.reversers) {
+      rv.sleeve.visible = rv.cascade.visible = rev > 0.01;
+      rv.sleeve.position.z = rv.travel * rev;
+    }
+    if (this.chuteRig) this._animateChute(dt, input.chute || 0, input.chuteState || 'stowed');
 
     // variable sweep schedule: wings fold back as Mach rises
     if (this.sweep) {
@@ -982,9 +1052,104 @@ export class JetModel {
     if (this.cockpit) this.cockpit.group.visible = on;
   }
 
+  // Drag chute: open canopy (orange/white gores) on risers trailing from the tail;
+  // twin canopies for the big Flankers and Felons.
+  _buildChute(area, d, cg) {
+    const twin = area >= 40;
+    const r = Math.sqrt((twin ? area / 2 : area) / Math.PI);
+    const riser = r * 2.4 + 3;
+    const nz = (d.nozzles && d.nozzles[0]) || { y: 0 };
+    const attach = new THREE.Vector3(0, (nz.y || 0) + 0.25, d.length - cg);
+    const group = new THREE.Group();
+    group.position.copy(attach);
+    group.visible = false;
+    const geo = new THREE.SphereGeometry(r, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    geo.rotateX(Math.PI / 2);
+    // radial gores: alternating orange and white by azimuth
+    const pos = geo.attributes.position;
+    const col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const az = Math.atan2(pos.getX(i), pos.getY(i));
+      const band = Math.floor(((az + Math.PI) / (Math.PI * 2)) * 12) % 2;
+      const crown = pos.getZ(i) > r * 0.86;
+      const c = crown ? [0.95, 0.95, 0.92] : band ? [0.95, 0.42, 0.08] : [0.96, 0.96, 0.94];
+      col.set(c, i * 3);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.85 });
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x9a948a, transparent: true, opacity: 0.8 });
+    this.ownMaterials.push(mat, lineMat);
+    const canopies = [];
+    const lines = [];
+    for (const ox of twin ? [-r * 0.95, r * 0.95] : [0]) {
+      const c = new THREE.Mesh(geo, mat);
+      c.position.set(ox, 0, riser);
+      group.add(c);
+      canopies.push(c);
+      for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * Math.PI * 2;
+        lines.push(0, 0, 0, ox + Math.sin(a) * r, Math.cos(a) * r, riser);
+      }
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+    group.add(new THREE.LineSegments(lg, lineMat));
+    this.root.add(group);
+    return { group, canopies, attach, detached: false, fallT: 0, drop: 0 };
+  }
+
+  _animateChute(dt, inflate, state) {
+    const c = this.chuteRig;
+    const g = c.group;
+    const t = this.time;
+    if (state === 'deploying' || state === 'deployed') {
+      if (c.detached) this._repackChute();
+      g.visible = true;
+      const s = 0.12 + 0.88 * inflate;
+      g.scale.set(s, s, 0.45 + 0.55 * inflate);
+      g.rotation.set(Math.sin(t * 6.3) * 0.025 * inflate, Math.sin(t * 4.7) * 0.035 * inflate, 0);
+      for (const cn of c.canopies) cn.scale.set(1 + Math.sin(t * 9 + cn.position.x) * 0.03, 1 + Math.cos(t * 8) * 0.03, 1);
+    } else if (state === 'jettisoned' || state === 'failed') {
+      if (!c.detached && g.visible && this.root.parent) {
+        // cut loose: it stays behind in the world, collapses and drops to the runway
+        this.root.parent.attach(g);
+        c.detached = true;
+        c.fallT = 0;
+        c.drop = 0;
+      }
+      if (c.detached) {
+        c.fallT += dt;
+        const d = Math.min(dt * 1.6, Math.max(0, 2.2 - c.drop));
+        c.drop += d;
+        g.position.y -= d;
+        g.scale.x = Math.max(0.15, g.scale.x * (1 - dt * 0.9));
+        g.scale.y = Math.max(0.06, g.scale.y * (1 - dt * 1.4));
+        if (c.fallT > 8) g.visible = false;
+      } else g.visible = false;
+    } else {
+      if (c.detached) this._repackChute();
+      g.visible = false;
+    }
+  }
+
+  _repackChute() {
+    const c = this.chuteRig;
+    this.root.add(c.group);
+    c.group.position.copy(c.attach);
+    c.group.rotation.set(0, 0, 0);
+    c.group.scale.set(1, 1, 1);
+    c.detached = false;
+    c.group.visible = false;
+  }
+
   dispose() {
+    if (this.chuteRig && this.chuteRig.detached) {
+      const g = this.chuteRig.group;
+      g.parent?.remove(g);
+      g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    }
     this.root.traverse((o) => {
-      if (o.isMesh && o.geometry) o.geometry.dispose();
+      if ((o.isMesh || o.isLineSegments) && o.geometry) o.geometry.dispose();
     });
     this.flameMat.dispose();
     this.flameCoreMat.dispose();

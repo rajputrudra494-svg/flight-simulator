@@ -37,7 +37,7 @@ export class Aircraft {
     this.supersonic = false;
     this.booms = 0;
     this.ai = null;
-    this.controls = { pitch: 0, roll: 0, yaw: 0, throttle: 0.75, airbrake: false, gear: !!opts.gear, brakes: false, gun: false, missile: false, flare: false };
+    this.controls = { pitch: 0, roll: 0, yaw: 0, throttle: 0.75, airbrake: false, gear: !!opts.gear, brakes: false, reverse: false, chute: false, gun: false, missile: false, flare: false };
     const w = spec.weapons;
     this.gunAmmo = opts.gunAmmo ?? w.gunAmmo;
     this.missiles = opts.missiles ?? w.missiles;
@@ -58,6 +58,8 @@ export class Aircraft {
     this.hits = 0;
     this.shots = 0;
     this.lockTarget = null;
+    this.mainWheelPoints = this.model.mainWheelPoints || [];
+    this.brakeSmokeT = 0;
   }
 
   place(position, heading, speed, pitch = 0) {
@@ -157,11 +159,24 @@ export class Aircraft {
     }
     this.syncVisual();
     const fm = this.fm;
+    if (fm.events.length) this._drainEvents(battle);
     this.model.animate(dt, {
       pitch: c.pitch, roll: c.roll, yaw: c.yaw, throttle: fm.throttle, ab: fm.afterburner, gear: c.gear,
       mach: fm.mach, gLoad: fm.gLoad, alpha: fm.alpha, speed: fm.airspeed, altitude: this.position.y,
       lightGlow: battle.world ? battle.world.nightFactor : 0,
+      // airliner speedbrakes in flight use the same panels as the ground spoilers
+      spoilers: Math.max(fm.spoilers, this.model.airliner ? fm.airbrake : 0), airbrake: fm.airbrake,
+      reverser: fm.reverser.deploy, chute: fm.chute.inflate, chuteState: fm.chute.state,
     });
+    // glowing-hot brakes smoke from the wheel wells
+    if (fm.brakeTemp > 850 && fm.gearDown && battle.effects && this.mainWheelPoints.length) {
+      this.brakeSmokeT -= dt;
+      if (this.brakeSmokeT <= 0) {
+        this.brakeSmokeT = 0.12 - Math.min(0.08, (fm.brakeTemp - 850) / 2000);
+        const wp = this.mainWheelPoints[Math.floor(Math.random() * this.mainWheelPoints.length)];
+        battle.effects.brakeSmoke(this.worldPoint(wp, _v), this.velocity);
+      }
+    }
     // breaking the sound barrier
     if (!this.supersonic && fm.mach >= 1.0 && !this.dying) {
       this.supersonic = true;
@@ -222,6 +237,24 @@ export class Aircraft {
     }
   }
 
+  // Flight-model events: effects and sounds here, game logic via the battle
+  _drainEvents(battle) {
+    const fm = this.fm;
+    for (const ev of fm.events) {
+      if (ev.type === 'touchdown') {
+        const strength = Math.min(1.6, 0.5 + ev.speed / 120 - ev.vs * 0.12);
+        if (battle.effects) for (const wp of this.mainWheelPoints) battle.effects.tyreSmoke(this.worldPoint(wp, _v), this.velocity, strength);
+        battle.audio?.touchdown?.(ev.vs, ev.speed, this.position, this.isPlayer);
+      } else if (ev.type === 'nosewheel') {
+        if (this.isPlayer) battle.audio?.nosewheel?.();
+      } else if (ev.type === 'chute') {
+        if (this.isPlayer) battle.audio?.chute?.(ev.state);
+      }
+      battle.onAircraftEvent?.(this, ev);
+    }
+    fm.events.length = 0;
+  }
+
   syncVisual() {
     this.root.position.copy(this.fm.position);
     this.root.quaternion.copy(this.fm.quaternion);
@@ -250,6 +283,10 @@ export class Aircraft {
       s.used = false;
       s.mesh.visible = !s.internal;
     }
+    // ground crew repack the chute and the brakes get time to cool
+    this.fm.repackChute();
+    this.fm.coolBrakes();
+    this.controls.chute = false;
   }
 
   dispose(scene) {

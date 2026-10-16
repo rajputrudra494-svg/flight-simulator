@@ -366,6 +366,94 @@ export class AudioEngine {
     osc.stop(t0 + 0.75);
   }
 
+  // ---- ground roll: tyre rumble, brake squeal, anti-skid chatter, spoiler buffet
+  _buildGround() {
+    const ctx = this.ctx;
+    const g = {};
+    // runway rumble: brown noise through a low-pass that opens with speed
+    const rumble = this._loop(this.brown);
+    g.rumbleLP = ctx.createBiquadFilter();
+    g.rumbleLP.type = 'lowpass';
+    g.rumbleLP.frequency.value = 120;
+    g.rumble = ctx.createGain();
+    g.rumble.gain.value = 0;
+    rumble.connect(g.rumbleLP).connect(g.rumble).connect(this.master);
+    // brake moan / squeal: a resonant band on noise plus a faint tone
+    const sq = this._loop(this.white);
+    g.squealBP = ctx.createBiquadFilter();
+    g.squealBP.type = 'bandpass';
+    g.squealBP.Q.value = 18;
+    g.squealBP.frequency.value = 900;
+    g.squeal = ctx.createGain();
+    g.squeal.gain.value = 0;
+    sq.connect(g.squealBP).connect(g.squeal);
+    // anti-skid: the brake noise is chopped at ~12 Hz while it cycles
+    g.skid = ctx.createGain();
+    g.skid.gain.value = 1;
+    g.skidLfo = ctx.createOscillator();
+    g.skidLfo.type = 'square';
+    g.skidLfo.frequency.value = 12;
+    g.skidDepth = ctx.createGain();
+    g.skidDepth.gain.value = 0;
+    g.skidLfo.connect(g.skidDepth).connect(g.skid.gain);
+    g.squeal.connect(g.skid).connect(this.master);
+    g.skidLfo.start();
+    // spoiler buffet: low rumble with a slow wobble
+    const buf = this._loop(this.brown);
+    g.buffetLP = ctx.createBiquadFilter();
+    g.buffetLP.type = 'lowpass';
+    g.buffetLP.frequency.value = 220;
+    g.buffet = ctx.createGain();
+    g.buffet.gain.value = 0;
+    buf.connect(g.buffetLP).connect(g.buffet).connect(this.master);
+    this.ground = g;
+  }
+
+  updateGround(p) {
+    if (!this.ctx) return;
+    if (!this.ground) this._buildGround();
+    const g = this.ground, t = this.ctx.currentTime;
+    const on = p.onGround ? 1 : 0;
+    const spd = Math.max(0, p.speed || 0);
+    const muffle = p.cockpit ? 0.7 : 1;
+    const v = Math.min(1, spd / 80);
+    g.rumble.gain.setTargetAtTime(on * (spd > 0.5 ? 0.12 + v * 0.45 : 0) * muffle, t, 0.08);
+    g.rumbleLP.frequency.setTargetAtTime(80 + v * 420, t, 0.1);
+    // brakes moan at low speed and squeal near the stop
+    const brake = on * Math.min(1, p.brake || 0) * (spd > 0.4 ? 1 : 0);
+    const slow = 1 - Math.min(1, spd / 45);
+    g.squeal.gain.setTargetAtTime(brake * (0.015 + slow * slow * 0.05) * muffle, t, 0.06);
+    g.squealBP.frequency.setTargetAtTime(420 + slow * 1700 + Math.sin(t * 3.1) * 60, t, 0.1);
+    g.skidDepth.gain.setTargetAtTime(p.antiskid && on ? 0.9 : 0, t, 0.03);
+    g.buffet.gain.setTargetAtTime(on * (p.spoilers || 0) * v * 0.18 * muffle, t, 0.15);
+  }
+
+  // Tyre chirp + gear thump; firmer landings are louder and lower
+  touchdown(vs, speed, pos, isPlayer) {
+    if (!this.ctx) return;
+    const firm = Math.min(1, Math.max(0, -vs / 4));
+    const where = isPlayer ? null : pos;
+    this._oneShot({ buffer: this.white, filter: 'bandpass', freq: 2400 - firm * 700, freqEnd: 900, q: 2.5, gain: 0.25 + firm * 0.35, attack: 0.004, decay: 0.32, pos: where, ref: 300 });
+    this._oneShot({ buffer: this.brown, filter: 'lowpass', freq: 260 - firm * 80, gain: 0.35 + firm * 0.9, attack: 0.005, decay: 0.45 + firm * 0.4, pos: where, ref: 300, rate: 0.8 });
+    if (speed > 40) this._oneShot({ buffer: this.white, filter: 'bandpass', freq: 1800, freqEnd: 1100, q: 3, gain: 0.15, attack: 0.01, decay: 0.25, pos: where, ref: 300 });
+  }
+
+  nosewheel() {
+    this._oneShot({ buffer: this.brown, filter: 'lowpass', freq: 180, gain: 0.45, attack: 0.005, decay: 0.35, rate: 0.9 });
+  }
+
+  // Drag chute: canopy "whump" on deployment, a rip when it fails
+  chute(state) {
+    if (state === 'deploying') {
+      this._oneShot({ buffer: this.brown, filter: 'lowpass', freq: 320, freqEnd: 90, gain: 0.8, attack: 0.02, decay: 0.7, rate: 0.7 });
+      this._oneShot({ buffer: this.white, filter: 'bandpass', freq: 700, freqEnd: 300, q: 0.8, gain: 0.25, attack: 0.05, decay: 0.9 });
+    } else if (state === 'failed') {
+      this._oneShot({ buffer: this.white, filter: 'highpass', freq: 1500, gain: 0.35, attack: 0.002, decay: 0.3 });
+    } else if (state === 'jettisoned') {
+      this._oneShot({ buffer: this.white, filter: 'bandpass', freq: 2500, q: 3, gain: 0.12, attack: 0.002, decay: 0.08 });
+    }
+  }
+
   hit(pos) {
     this._oneShot({ buffer: this.white, filter: 'highpass', freq: 2500, gain: 0.35, attack: 0.001, decay: 0.06, pos, ref: 300 });
   }
@@ -402,5 +490,8 @@ export class AudioEngine {
     this.gunGate.gain.setTargetAtTime(0, t, 0.01);
     this.seekGain.gain.setTargetAtTime(0, t, 0.02);
     this.warnGain.gain.setTargetAtTime(0, t, 0.02);
+    if (this.ground) {
+      for (const g of [this.ground.rumble, this.ground.squeal, this.ground.buffet]) g.gain.setTargetAtTime(0, t, 0.05);
+    }
   }
 }

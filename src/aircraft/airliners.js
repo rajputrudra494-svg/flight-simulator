@@ -18,6 +18,7 @@ export const AIRLINERS = {
     unlock: 0,
     stats: { speed: 0.36, agility: 0.22, firepower: 0, armor: 0.6 },
     flight: {
+      brakes: { mu: 0.46, autobrake: true, spoilers: true, reverser: 0.32 },
       mass: 66000, wingArea: 122.6, thrustDry: 240, thrustAB: 240, noAB: true, cd0: 0.021, k: 0.042,
       clAlpha: 5.4, maxAoA: 15, maxG: 2.5, pitchRate: 9, rollRate: 42, yawRate: 6, maxMach: 0.82, waveDrag: 3, flapCL: 0.6,
     },
@@ -64,6 +65,7 @@ export const AIRLINERS = {
     unlock: 0,
     stats: { speed: 0.37, agility: 0.24, firepower: 0, armor: 0.6 },
     flight: {
+      brakes: { mu: 0.46, autobrake: true, spoilers: true, reverser: 0.32 },
       mass: 68000, wingArea: 127, thrustDry: 260, thrustAB: 260, noAB: true, cd0: 0.021, k: 0.043,
       clAlpha: 5.4, maxAoA: 15, maxG: 2.5, pitchRate: 9, rollRate: 42, yawRate: 6, maxMach: 0.82, waveDrag: 3, flapCL: 0.6,
     },
@@ -113,6 +115,7 @@ export const AIRLINERS = {
     unlock: 0,
     stats: { speed: 0.4, agility: 0.16, firepower: 0, armor: 0.8 },
     flight: {
+      brakes: { mu: 0.46, heatCap: 4.6, autobrake: true, spoilers: true, reverser: 0.3 },
       mass: 300000, wingArea: 436.8, thrustDry: 1026, thrustAB: 1026, noAB: true, cd0: 0.02, k: 0.04,
       clAlpha: 5.4, maxAoA: 15, maxG: 2.5, pitchRate: 7, rollRate: 32, yawRate: 5, maxMach: 0.84, waveDrag: 3, flapCL: 0.6,
     },
@@ -159,6 +162,7 @@ export const AIRLINERS = {
     unlock: 0,
     stats: { speed: 0.42, agility: 0.14, firepower: 0, armor: 0.85 },
     flight: {
+      brakes: { mu: 0.46, heatCap: 4.6, autobrake: true, spoilers: true, reverser: 0.3 },
       mass: 380000, wingArea: 554, thrustDry: 1180, thrustAB: 1180, noAB: true, cd0: 0.021, k: 0.042,
       clAlpha: 5.2, maxAoA: 15, maxG: 2.5, pitchRate: 6.5, rollRate: 30, yawRate: 5, maxMach: 0.86, waveDrag: 3, flapCL: 0.6,
     },
@@ -216,6 +220,7 @@ export const AIRLINERS = {
     unlock: 0,
     stats: { speed: 0.41, agility: 0.12, firepower: 0, armor: 0.9 },
     flight: {
+      brakes: { mu: 0.46, heatCap: 4.6, autobrake: true, spoilers: true, reverser: 0.17 },
       mass: 430000, wingArea: 845, thrustDry: 1240, thrustAB: 1240, noAB: true, cd0: 0.02, k: 0.038,
       clAlpha: 5.3, maxAoA: 15, maxG: 2.5, pitchRate: 6, rollRate: 28, yawRate: 4.5, maxMach: 0.86, waveDrag: 3, flapCL: 0.6,
     },
@@ -272,6 +277,7 @@ export const AIRLINERS = {
     unlock: 3,
     stats: { speed: 0.9, agility: 0.3, firepower: 0, armor: 0.62 },
     flight: {
+      brakes: { mu: 0.45, autobrake: true, spoilers: false, reverser: 0.28 },
       mass: 120000, wingArea: 358, thrustDry: 560, thrustAB: 760, cd0: 0.008, k: 0.18,
       clAlpha: 2.8, maxAoA: 22, maxG: 2.5, pitchRate: 9, rollRate: 45, yawRate: 6, maxMach: 2.05, flapCL: 0.3,
     },
@@ -327,6 +333,7 @@ AIRLINERS.an124 = {
   exclusive: true,
   stats: { speed: 0.34, agility: 0.08, firepower: 0, armor: 1.0 },
   flight: {
+    brakes: { mu: 0.45, heatCap: 4.4, autobrake: true, spoilers: true, reverser: 0.3 },
     mass: 395000, wingArea: 628, thrustDry: 918, thrustAB: 918, noAB: true, cd0: 0.024, k: 0.046,
     clAlpha: 5.0, maxAoA: 14, maxG: 2.5, pitchRate: 5, rollRate: 26, yawRate: 4, maxMach: 0.77, waveDrag: 3, flapCL: 0.75,
   },

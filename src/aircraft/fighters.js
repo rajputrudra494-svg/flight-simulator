@@ -182,6 +182,7 @@ export const FIGHTERS = {
     unlock: 1,
     stats: { speed: 0.76, agility: 0.92, firepower: 0.58, armor: 0.48 },
     flight: {
+      brakes: { aeroBrake: 1.5 },
       mass: 9500, wingArea: 30, thrustDry: 54, thrustAB: 80, cd0: 0.018, k: 0.12,
       clAlpha: 3.9, maxAoA: 30, maxG: 9, pitchRate: 30, rollRate: 290, yawRate: 20, maxMach: 2.0,
     },
@@ -221,6 +222,7 @@ export const FIGHTERS = {
     unlock: 0,
     stats: { speed: 0.7, agility: 0.88, firepower: 0.56, armor: 0.5 },
     flight: {
+      brakes: { chute: 12 },
       mass: 10000, wingArea: 38.4, thrustDry: 49, thrustAB: 84, cd0: 0.019, k: 0.13,
       clAlpha: 3.7, maxAoA: 26, maxG: 8, pitchRate: 28, rollRate: 280, yawRate: 18, maxMach: 1.6,
     },
@@ -262,6 +264,7 @@ export const FIGHTERS = {
     unlock: 2,
     stats: { speed: 0.84, agility: 0.8, firepower: 0.62, armor: 0.56 },
     flight: {
+      brakes: { chute: 12 },
       mass: 10500, wingArea: 41, thrustDry: 64, thrustAB: 95, cd0: 0.018, k: 0.13,
       clAlpha: 3.6, maxAoA: 29, maxG: 9, pitchRate: 26, rollRate: 270, yawRate: 18, maxMach: 2.2,
     },
@@ -300,6 +303,7 @@ export const FIGHTERS = {
     unlock: 9,
     stats: { speed: 0.94, agility: 0.98, firepower: 0.88, armor: 0.82 },
     flight: {
+      brakes: { chute: 50 },
       mass: 29000, wingArea: 78.8, thrustDry: 200, thrustAB: 320, cd0: 0.019, k: 0.1,
       clAlpha: 4.3, maxAoA: 50, maxG: 9, pitchRate: 32, rollRate: 260, yawRate: 24, maxMach: 2.0, tvc: true,
     },
@@ -347,6 +351,7 @@ export const FIGHTERS = {
     unlock: 8,
     stats: { speed: 0.95, agility: 0.82, firepower: 0.9, armor: 0.8 },
     flight: {
+      brakes: { chute: 30 },
       mass: 32000, wingArea: 73, thrustDry: 180, thrustAB: 290, cd0: 0.018, k: 0.11,
       clAlpha: 4.0, maxAoA: 40, maxG: 9, pitchRate: 28, rollRate: 240, yawRate: 20, maxMach: 2.0,
     },
@@ -389,6 +394,7 @@ export const FIGHTERS = {
     unlock: 0,
     stats: { speed: 0.8, agility: 0.66, firepower: 0.44, armor: 0.42 },
     flight: {
+      brakes: { chute: 16 },
       mass: 8000, wingArea: 23, thrustDry: 40, thrustAB: 70, cd0: 0.02, k: 0.14,
       clAlpha: 3.5, maxAoA: 25, maxG: 7, pitchRate: 22, rollRate: 220, yawRate: 16, maxMach: 2.05,
     },

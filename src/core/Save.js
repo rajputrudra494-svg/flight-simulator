@@ -9,6 +9,8 @@ export const DEFAULT_SETTINGS = {
   sensitivity: 1,
   volume: 0.8,
   voice: true,
+  atc: 'full',
+  radioFx: true,
   units: 'imperial',
   difficulty: 1,
   showFps: false,

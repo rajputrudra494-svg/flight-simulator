@@ -101,6 +101,7 @@ export const JETS = {
     unlock: 4,
     stats: { speed: 0.88, agility: 0.88, firepower: 0.7, armor: 0.6 },
     flight: {
+      brakes: { chute: 14 },
       mass: 15500, wingArea: 51.2, thrustDry: 120, thrustAB: 180, cd0: 0.018, k: 0.12,
       clAlpha: 3.9, maxAoA: 28, maxG: 9, pitchRate: 28, rollRate: 260, yawRate: 18, maxMach: 2.0,
     },
@@ -140,6 +141,7 @@ export const JETS = {
     unlock: 3,
     stats: { speed: 0.8, agility: 0.9, firepower: 0.6, armor: 0.65 },
     flight: {
+      brakes: { chute: 17 },
       mass: 14800, wingArea: 38.0, thrustDry: 100, thrustAB: 162, cd0: 0.02, k: 0.11,
       clAlpha: 4.4, maxAoA: 30, maxG: 9, pitchRate: 28, rollRate: 250, yawRate: 20, maxMach: 2.25,
     },
@@ -183,6 +185,7 @@ export const JETS = {
     unlock: 6,
     stats: { speed: 0.86, agility: 0.95, firepower: 0.92, armor: 0.85 },
     flight: {
+      brakes: { chute: 50 },
       mass: 25000, wingArea: 62.0, thrustDry: 172, thrustAB: 284, cd0: 0.021, k: 0.1,
       clAlpha: 4.5, maxAoA: 45, maxG: 9, pitchRate: 32, rollRate: 240, yawRate: 24, maxMach: 2.25, tvc: true,
     },

@@ -1,28 +1,16 @@
 // Aircraft catalogue: flight characteristics, weapons and the geometric design
 // data used by JetBuilder. Dimensions are metres, z measured from the nose tip
-// towards the tail, x to the right, y up.
+// towards the tail, x to the right, y up. The original six fighters live here;
+// fighters.js and airliners.js add the rest of the hangar.
 
-const S = (z, w, top, bot, y = 0, n = 2, nb) => ({ z, w, top, bot, y, n, nb: nb ?? n });
-const W = (x, y, z, chord, t = 0.045) => ({ x, y, z, chord, t });
-
-// Tangent-ogive radome from the nose tip to a station (len, w, top, bot)
-const NOSE = (len, w, top, bot, y = 0, tipY = y, n = 2, nb = n, steps = 6) => {
-  const out = [];
-  const f = len / w; // fineness ratio in units of the radius
-  const rho = (1 + f * f) / 2;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const x = t * f;
-    const r = Math.sqrt(Math.max(0, rho * rho - (f - x) * (f - x))) - (rho - 1);
-    const k = i === 0 ? 0 : Math.min(1, Math.max(0, r));
-    out.push(S(t * len, w * k, top * k, bot * k, tipY + (y - tipY) * t, n, nb));
-  }
-  return out;
-};
+import { S, W, NOSE } from './designHelpers.js';
+import { FIGHTERS, FIGHTER_ORDER } from './fighters.js';
+import { AIRLINERS, AIRLINER_ORDER } from './airliners.js';
 
 export const JETS = {
   f16: {
     id: 'f16',
+    category: 'fighter',
     name: 'F-16C Viper',
     role: 'Multirole fighter',
     description: 'Light, nimble and forgiving. Bubble canopy gives superb visibility and the fly-by-wire system lets you pull 9 G all day.',
@@ -63,6 +51,7 @@ export const JETS = {
 
   fa18: {
     id: 'fa18',
+    category: 'fighter',
     name: 'F/A-18E Super Hornet',
     role: 'Carrier strike fighter',
     description: 'Big leading-edge extensions give it outstanding high-alpha handling. Slower than the rest, but carries the heaviest missile load.',
@@ -105,6 +94,7 @@ export const JETS = {
 
   typhoon: {
     id: 'typhoon',
+    category: 'fighter',
     name: 'Eurofighter Typhoon',
     role: 'Air superiority',
     description: 'Canard-delta with a phenomenal thrust-to-weight ratio. Supercruises, out-climbs everything and turns hard at high altitude.',
@@ -143,6 +133,7 @@ export const JETS = {
 
   mig29: {
     id: 'mig29',
+    category: 'fighter',
     name: 'MiG-29 Fulcrum',
     role: 'Frontline fighter',
     description: 'A rugged dogfighter with brutal low-speed handling and a quick-pointing nose. Short legs, sharp teeth.',
@@ -185,6 +176,7 @@ export const JETS = {
 
   su35: {
     id: 'su35',
+    category: 'fighter',
     name: 'Su-35 Flanker-E',
     role: 'Heavy air superiority',
     description: 'Thrust-vectoring super-manoeuvrability. Can point its nose almost anywhere at low speed and carries a huge missile load.',
@@ -228,10 +220,11 @@ export const JETS = {
 
   f22: {
     id: 'f22',
+    category: 'fighter',
     name: 'F-22A Raptor',
     role: 'Stealth air dominance',
     description: 'Fifth-generation stealth fighter with supercruise and thrust vectoring. The ultimate dogfighter — earned, not given.',
-    unlock: 9,
+    unlock: 10,
     stats: { speed: 0.97, agility: 0.97, firepower: 0.85, armor: 0.8 },
     flight: {
       mass: 29000, wingArea: 78.0, thrustDry: 232, thrustAB: 312, cd0: 0.017, k: 0.1,
@@ -268,4 +261,15 @@ export const JETS = {
   },
 };
 
-export const JET_ORDER = ['f16', 'fa18', 'mig29', 'typhoon', 'su35', 'f22'];
+Object.assign(JETS, FIGHTERS, AIRLINERS);
+
+// Military jets roughly in unlock order, then the airliners.
+const BASE_ORDER = ['f16', 'fa18', 'mig29', 'typhoon', 'su35', 'f22'];
+export const MILITARY_ORDER = [
+  'f16', 'tejas', 'mig21', 'a10', 'gripen', 'fa18', 'mirage', 'mig29', 'rafale',
+  'f15', 'typhoon', 'f14', 'su35', 'f35', 'j20', 'su57', 'f22',
+].filter((id) => BASE_ORDER.includes(id) || FIGHTER_ORDER.includes(id));
+export { AIRLINER_ORDER };
+export const JET_ORDER = [...MILITARY_ORDER, ...AIRLINER_ORDER];
+
+export const isCivil = (spec) => !!(spec && spec.civil);

@@ -27,8 +27,84 @@ const terrainShaderPars = /* glsl */ `
   uniform vec3 uWaterDeep;
   uniform float uAbsorb;
   uniform float uTreeLine;
+  uniform float uCityOn;
+  uniform sampler2D uCityTex;
+  uniform vec2 uCityOrigin;
+  uniform vec2 uCityCell;
+  uniform float uCityN;
+  uniform float uNight;
+  uniform float uTime;
+  uniform vec4 uRoads[ 4 ];
+  uniform float uRoadCount;
   varying vec3 vTPos;
   varying vec3 vTNormal;
+  vec3 tCityEmit = vec3( 0.0 );
+
+  float tSegDist( vec2 p, vec2 a, vec2 b ) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp( dot( pa, ba ) / dot( ba, ba ), 0.0, 1.0 );
+    return length( pa - ba * h );
+  }
+
+  // Street grid, parks, docks and (at night) sodium street lighting for the
+  // city cells encoded in uCityTex, plus highways from uRoads.
+  void cityPaint( inout vec3 col, vec2 p, vec4 nC, vec4 nD ) {
+    float px = max( fwidth( p.x ), fwidth( p.y ) );
+    vec3 asphalt = vec3( 0.13, 0.135, 0.14 ) * ( 0.9 + 0.25 * nD.r );
+    vec3 sodium = vec3( 1.0, 0.62, 0.28 );
+    for ( int i = 0; i < 4; i++ ) {
+      if ( float( i ) >= uRoadCount ) break;
+      vec4 r = uRoads[ i ];
+      float d = tSegDist( p, r.xy, r.zw );
+      float road = 1.0 - smoothstep( 12.0 - px, 12.0 + px, d );
+      if ( road > 0.0 ) {
+        float lane = ( 1.0 - smoothstep( 0.2, 0.2 + px, abs( d - 6.0 ) ) ) * step( 0.5, fract( dot( p, normalize( r.zw - r.xy ) ) / 10.0 ) ) * ( 1.0 - smoothstep( 2.0, 6.0, px ) );
+        col = mix( col, mix( asphalt, vec3( 0.85 ), lane ), road );
+        tCityEmit += uNight * uNight * 0.6 * sodium * road * ( 0.12 + 0.5 * exp( -pow( abs( fract( dot( p, normalize( r.zw - r.xy ) ) / 40.0 ) - 0.5 ) * 40.0, 2.0 ) / max( 2.0, px * px ) ) * ( 1.0 - smoothstep( 9.0, 12.0, d ) ) );
+      }
+    }
+    vec2 g = ( p - uCityOrigin ) / uCityCell.x;
+    if ( g.x < 0.0 || g.y < 0.0 || g.x >= uCityN || g.y >= uCityN ) return;
+    float type = floor( texture2D( uCityTex, ( floor( g ) + 0.5 ) / uCityN ).r * 255.0 + 0.5 );
+    if ( type < 0.5 ) return;
+    float C = uCityCell.x;
+    vec2 f = fract( g ) * C;
+    vec2 e = min( f, C - f );
+    bool alongZ = e.x < e.y;
+    float edge = min( e.x, e.y );
+    float hs = uCityCell.y * 0.5;
+    float aa = px * 0.75 + 0.1;
+    float road = 1.0 - smoothstep( hs - aa, hs + aa, edge );
+    float walk = 1.0 - smoothstep( hs + 3.5 - aa, hs + 3.5 + aa, edge );
+    vec3 lot;
+    if ( type < 1.5 ) lot = vec3( 0.4, 0.395, 0.375 ) * ( 0.85 + 0.3 * nC.g );
+    else if ( type < 2.5 ) lot = mix( uGrass1, uForestCol, 0.3 ) * ( 0.85 + 0.3 * nC.b );
+    else lot = vec3( 0.47, 0.46, 0.44 ) * ( 0.88 + 0.2 * nC.r );
+    vec3 sidewalk = vec3( 0.56, 0.55, 0.52 );
+    float along = alongZ ? p.y : p.x;
+    float centre = ( 1.0 - smoothstep( 0.18, 0.18 + aa, edge ) ) * step( 0.5, fract( along / 9.0 ) ) * ( 1.0 - smoothstep( 2.0, 6.0, px ) );
+    vec3 c = mix( lot, sidewalk, walk * ( type < 1.5 ? 1.0 : 0.6 ) );
+    c = mix( c, asphalt, road );
+    c = mix( c, vec3( 0.85, 0.82, 0.6 ), centre * road );
+    // average the pattern out far away so it never shimmers
+    float far = smoothstep( 8.0, 30.0, px );
+    vec3 avgCol = mix( lot, asphalt, min( 1.0, ( hs * 2.0 ) / C * 1.7 ) );
+    col = mix( c, avgCol, far );
+    if ( uNight > 0.01 ) {
+      float lp = abs( fract( along / 32.0 ) - 0.5 ) * 32.0;
+      float ld = length( vec2( lp, edge - ( hs + 1.2 ) ) );
+      float bulb = exp( -ld * ld / max( 1.5, px * px * 0.8 ) );
+      float pool = exp( -ld * ld / 90.0 ) * road * 0.35;
+      float lineGlow = ( 1.0 - smoothstep( hs, hs + 2.0 + px * 1.5, edge ) ) * 0.12;
+      float near = 1.0 - smoothstep( 3.0, 12.0, px );
+      // moving car lights in the streets
+      float lane = edge - hs * 0.5;
+      float dir = ( alongZ ? f.x : f.y ) < C * 0.5 ? -1.0 : 1.0;
+      float carPos = fract( along / 55.0 + fract( floor( g.x ) * 0.37 + floor( g.y ) * 0.61 ) + uTime * 0.24 * dir );
+      float car = ( 1.0 - smoothstep( 0.0, 1.2 + px, abs( lane ) ) ) * ( 1.0 - smoothstep( 0.0, 0.04 + px / 55.0, abs( carPos - 0.5 ) ) ) * near;
+      tCityEmit += uNight * uNight * ( sodium * mix( lineGlow * 1.6, bulb * 1.6 + pool * 0.6, near ) + vec3( 1.0, 0.9, 0.75 ) * car * 1.2 );
+    }
+  }
 
   float tHash( vec2 p ) {
     p = fract( p * vec2( 123.34, 456.21 ) );
@@ -106,6 +182,8 @@ const terrainShaderPars = /* glsl */ `
     snowAmt *= 1.0 - smoothstep( 0.42, 0.62, slope + ( nC.b - 0.5 ) * 0.2 );
     col = mix( col, uSnow * ( 0.93 + 0.07 * nD.g ), snowAmt );
 
+    if ( uCityOn > 0.5 ) cityPaint( col, p, nC, nD );
+
     // fine detail
     float detailFade = smoothstep( 2500.0, 200.0, dist );
     col *= 1.0 + ( nD.a - 0.5 ) * 0.35 * detailFade + ( nC.a - 0.5 ) * 0.2;
@@ -122,9 +200,26 @@ const terrainShaderPars = /* glsl */ `
   }
 `;
 
-export function createTerrainMaterial(mapDef, quality) {
+function cityTexture(city) {
+  const N = city.N;
+  const data = new Uint8Array(N * N * 4);
+  for (let k = 0; k < N * N; k++) {
+    data[k * 4] = city.types[k];
+    data[k * 4 + 1] = city.heightClass[k];
+    data[k * 4 + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+export function createTerrainMaterial(mapDef, quality, map = null) {
   const pal = mapDef.palette;
   const col = (hex) => new THREE.Color(hex);
+  const city = map && map.city;
   const uniforms = {
     uNoise: { value: getNoiseTexture() },
     uWaterLevel: { value: mapDef.water.level },
@@ -147,6 +242,15 @@ export function createTerrainMaterial(mapDef, quality) {
     uFieldC: { value: col(pal.fieldC || '#9bb84f') },
     uWaterDeep: { value: col(mapDef.water.shallow) },
     uAbsorb: { value: mapDef.water.absorb },
+    uCityOn: { value: city ? 1 : 0 },
+    uCityTex: { value: city ? cityTexture(city) : null },
+    uCityOrigin: { value: new THREE.Vector2(city ? city.x0 : 0, city ? city.z0 : 0) },
+    uCityCell: { value: new THREE.Vector2(city ? city.cell : 100, city ? city.street : 10) },
+    uCityN: { value: city ? city.N : 1 },
+    uNight: { value: 0 },
+    uTime: { value: 0 },
+    uRoads: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+    uRoadCount: { value: 0 },
   };
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   mat.onBeforeCompile = (shader) => {
@@ -159,9 +263,10 @@ export function createTerrainMaterial(mapDef, quality) {
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + terrainShaderPars)
-      .replace('#include <color_fragment>', 'diffuseColor.rgb = terrainAlbedo();');
+      .replace('#include <color_fragment>', 'diffuseColor.rgb = terrainAlbedo();')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += tCityEmit;');
   };
-  mat.customProgramCacheKey = () => 'terrain-v1';
+  mat.customProgramCacheKey = () => 'terrain-v2';
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -220,7 +325,7 @@ export class Terrain {
       this.maxLevel++;
     }
     this.rootSize = root;
-    this.material = createTerrainMaterial(map.def, quality);
+    this.material = createTerrainMaterial(map.def, quality, map);
     this.receiveShadow = quality.shadows;
     this.group = new THREE.Group();
     this.group.name = 'terrain';
@@ -424,6 +529,7 @@ export class Terrain {
   dispose() {
     for (const c of this.chunks.values()) c.mesh.geometry.dispose();
     this.chunks.clear();
+    this.material.userData.uniforms.uCityTex.value?.dispose();
     this.material.dispose();
     this.scene.remove(this.group);
   }

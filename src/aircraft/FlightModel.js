@@ -88,14 +88,19 @@ export class FlightModel {
     const f = this.f;
     const idle = 0.06 * f.thrustDry;
     let t;
-    if (throttle <= 0.9) t = idle + (f.thrustDry - idle) * (throttle / 0.9);
+    // turbofans without reheat use the whole throttle range for dry thrust
+    if (f.noAB) t = idle + (f.thrustDry - idle) * throttle;
+    else if (throttle <= 0.9) t = idle + (f.thrustDry - idle) * (throttle / 0.9);
     else t = f.thrustDry + (f.thrustAB - f.thrustDry) * ((throttle - 0.9) / 0.1);
     const lapse = Math.pow(rho / 1.225, 0.72);
-    const ram = 1 + 0.12 * Math.min(mach, 1.6);
+    // reheated turbojets gain a little ram thrust; high-bypass turbofans lose
+    // thrust as airspeed builds (why heavy jets accelerate so slowly)
+    const ram = f.noAB ? 1 - 0.35 * Math.min(mach, 0.9) : 1 + 0.12 * Math.min(mach, 1.6);
     return t * 1000 * lapse * ram;
   }
 
   get afterburner() {
+    if (this.f.noAB) return 0;
     return Math.max(0, (this.throttle - 0.9) / 0.1);
   }
 
@@ -154,15 +159,18 @@ export class FlightModel {
     const clPlate = 1.15 * Math.sin(2 * alpha);
     const wStall = smoothstep(this.alphaStall, this.alphaStall + 0.15, aAbs);
     let CL = clLin * (1 - wStall) + clPlate * wStall;
-    if (this.gearDown) CL *= 1.0;
+    // airliners extend high-lift flaps together with the gear
+    if (this.gearDown && f.flapCL) CL += f.flapCL * (1 - wStall);
     this.stalled = !this.onGround && aAbs > this.alphaStall;
     this.stallWarn = !this.onGround && (aAbs > this.alphaMax * 0.95 || (this.ias < 70 && V > 5));
 
     // Drag
-    const wave = 1 + 1.5 * smoothstep(0.82, 1.05, mach) - 0.45 * smoothstep(1.2, 2.0, mach);
+    // transonic drag rise; subsonic airliners (waveDrag > 1) hit a much steeper wall
+    const wk = f.waveDrag ?? 1;
+    const wave = 1 + 1.5 * wk * smoothstep(0.82, 1.05, mach) - 0.45 * smoothstep(1.2, 2.0, mach);
     const over = Math.max(0, mach - f.maxMach);
-    let CD = f.cd0 * wave + f.k * CL * CL + 1.1 * Math.sin(aAbs) * Math.sin(aAbs) * wStall + over * over * 2.5;
-    if (this.gearDown) CD += 0.022;
+    let CD = f.cd0 * wave + f.k * CL * CL + 1.1 * Math.sin(aAbs) * Math.sin(aAbs) * wStall + over * over * 2.5 * wk;
+    if (this.gearDown) CD += f.flapCL ? 0.035 : 0.022;
     CD += 0.07 * this.airbrake;
     const S = f.wingArea;
 
@@ -225,7 +233,7 @@ export class FlightModel {
     this.r += (rCmd - this.r) * Math.min(1, dt / tauR);
 
     // --- Ground interaction ---------------------------------------------
-    const ground = env.groundAt(pos.x, pos.z);
+    const ground = env.groundAt(pos.x, pos.z, pos.y);
     const wheelBottom = pos.y - this.gearHeight * Math.max(0.3, _up.y);
     const bodyBottom = pos.y - 1.0;
     if (this.onGround) {
@@ -305,10 +313,10 @@ export class FlightModel {
           vel.y = 0;
           this.q = 0;
         } else if (bodyBottom <= gh || !this.gearDown || !ground.landable || vs < -5.5) {
-          this._crash(this.gearDown ? (vs < -5.5 ? 'Hard landing' : 'Crashed on landing') : 'Crashed into terrain');
+          this._crash(ground.building ? 'Crashed into a building' : this.gearDown ? (vs < -5.5 ? 'Hard landing' : 'Crashed on landing') : 'Crashed into terrain');
         }
       } else if (bodyBottom <= gh) {
-        this._crash('Crashed into terrain');
+        this._crash(ground.building ? 'Crashed into a building' : 'Crashed into terrain');
       }
     }
   }

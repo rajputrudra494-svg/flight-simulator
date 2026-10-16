@@ -187,20 +187,24 @@ export class AudioEngine {
     const tc = 0.08;
     const thr = p.throttle, ab = p.ab, spd = p.speed;
     const on = p.active ? 1 : 0;
-    this.engineOut.gain.setTargetAtTime(on * (p.cockpit ? 0.6 : 0.85), t, 0.2);
-    this.rumbleLP.frequency.setTargetAtTime(220 + thr * 520 + ab * 500, t, tc);
-    this.rumbleGain.gain.setTargetAtTime(0.35 + thr * 0.45 + ab * 0.3, t, tc);
+    // outside the aircraft at supersonic speed the engine noise is left behind
+    const muffle = p.supersonicExternal ? 0.22 : 1;
+    const fan = p.turbofan ? 1 : 0;
+    this.engineOut.gain.setTargetAtTime(on * (p.cockpit ? 0.6 : 0.85) * muffle, t, 0.2);
+    this.rumbleLP.frequency.setTargetAtTime(220 + thr * 520 + ab * 500 - fan * 120, t, tc);
+    this.rumbleGain.gain.setTargetAtTime((0.35 + thr * 0.45 + ab * 0.3) * (1 - fan * 0.45), t, tc);
     const rpm = 0.35 + thr * 0.65;
-    this.whine.frequency.setTargetAtTime(260 + rpm * 900, t, 0.3);
-    this.whine2.frequency.setTargetAtTime(900 + rpm * 2600, t, 0.3);
+    // high-bypass turbofans: lower fan buzz, stronger whine
+    this.whine.frequency.setTargetAtTime(fan ? 160 + rpm * 520 : 260 + rpm * 900, t, 0.3);
+    this.whine2.frequency.setTargetAtTime(fan ? 1300 + rpm * 1900 : 900 + rpm * 2600, t, 0.3);
     this.whineBP.frequency.setTargetAtTime(500 + rpm * 2200, t, 0.3);
-    this.whineGain.gain.setTargetAtTime((0.012 + rpm * 0.03) * (p.cockpit ? 1.3 : 0.8), t, tc);
+    this.whineGain.gain.setTargetAtTime((0.012 + rpm * 0.03) * (p.cockpit ? 1.3 : 0.8) * (1 + fan * 0.9), t, tc);
     this.abGain.gain.setTargetAtTime(ab * 0.55, t, 0.12);
     this.abLP.frequency.setTargetAtTime(700 + ab * 900, t, tc);
     const w = Math.min(1, spd / 400);
     this.windGain.gain.setTargetAtTime(on * (w * w * 0.32 + (p.gLoad > 6 ? 0.06 : 0) + (p.airbrake ? 0.12 : 0)), t, 0.15);
     this.windBP.frequency.setTargetAtTime(500 + w * 1800, t, tc);
-    this.cockpitFilter.frequency.setTargetAtTime(p.cockpit ? 2200 : 18000, t, 0.1);
+    this.cockpitFilter.frequency.setTargetAtTime(p.cockpit ? 2200 : p.supersonicExternal ? 650 : 18000, t, 0.1);
     // gun
     const firing = p.gunFiring ? 1 : 0;
     this.gunMod.frequency.setValueAtTime(p.gunRate || 100, t);
@@ -312,6 +316,54 @@ export class AudioEngine {
   explosion(pos, scale = 1) {
     this._oneShot({ buffer: this.brown, filter: 'lowpass', freq: 1400, freqEnd: 80, q: 0.5, gain: 1.4 * Math.min(1.6, scale), attack: 0.01, decay: 2.4 * Math.min(1.5, scale), pos, ref: 900, rate: 0.6, delayByDistance: true });
     this._oneShot({ buffer: this.white, filter: 'lowpass', freq: 4000, freqEnd: 200, gain: 0.5 * scale, attack: 0.003, decay: 0.4, pos, ref: 600, delayByDistance: true });
+  }
+
+  // Sonic boom: the classic double "N-wave" crack followed by a rolling rumble.
+  // `gain` already includes distance; `inside` muffles it for the pilot.
+  sonicBoom(gain = 1, inside = false) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!this.boomBuffer) {
+      const sr = ctx.sampleRate;
+      const len = Math.floor(sr * 2.6);
+      const buf = ctx.createBuffer(1, len, sr);
+      const d = buf.getChannelData(0);
+      const nwave = (t0, dur, amp) => {
+        const i0 = Math.floor(t0 * sr), n = Math.floor(dur * sr);
+        for (let i = 0; i < n && i0 + i < len; i++) d[i0 + i] += amp * (1 - (2 * i) / n);
+      };
+      nwave(0.01, 0.11, 1.0);
+      nwave(0.19, 0.11, 0.85);
+      let last = 0;
+      for (let i = Math.floor(0.02 * sr); i < len; i++) {
+        const t = i / sr;
+        last = (last + 0.03 * (Math.random() * 2 - 1)) / 1.03;
+        d[i] += last * 2.6 * Math.exp(-(t - 0.02) / 0.75);
+      }
+      this.boomBuffer = buf;
+    }
+    const t0 = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.boomBuffer;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = inside ? 260 : 900;
+    const g = ctx.createGain();
+    g.gain.value = Math.min(1.6, gain * (inside ? 0.45 : 1.3));
+    src.connect(lp).connect(g).connect(this.sfx);
+    src.start(t0);
+    // sub-bass thump
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(55, t0);
+    osc.frequency.exponentialRampToValueAtTime(28, t0 + 0.5);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.0001, t0);
+    og.gain.exponentialRampToValueAtTime(Math.max(0.001, Math.min(1, gain * 0.9)), t0 + 0.012);
+    og.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
+    osc.connect(og).connect(this.sfx);
+    osc.start(t0);
+    osc.stop(t0 + 0.75);
   }
 
   hit(pos) {

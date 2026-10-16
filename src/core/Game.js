@@ -13,6 +13,7 @@ import { Mission } from '../game/Mission.js';
 import { MISSIONS } from '../game/missions.js';
 import { CameraRig } from '../game/CameraRig.js';
 import { Targeting } from '../game/Targeting.js';
+import { TargetCam } from '../game/TargetCam.js';
 import { HUD } from '../ui/HUD.js';
 import { Menus } from '../ui/Menus.js';
 import { TouchControls } from '../ui/TouchControls.js';
@@ -30,6 +31,11 @@ const TIPS = [
   'Land on the runway in free flight to rearm and repair.',
   'Lower the gear and slow down before landing; touch down under 5 m/s sink rate.',
   'Pull too hard for too long and you will start to black out.',
+  'Press Y to lock whatever you are looking at: works in padlock and free-look too.',
+  'Break Mach 1 low over the sea for a sonic boom and a rooster tail of spray.',
+  'Heavy jets need flaps (gear down) and patience: rotate at about 150 knots.',
+  'Press K to ride along with your next missile on the weapon camera.',
+  'Fly low between the skyscrapers to stay under enemy radar in the city.',
 ];
 
 export class Game {
@@ -84,6 +90,7 @@ export class Game {
     this.renderer = this.gr.renderer;
     this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.8, this.quality.viewDistance * 1.6);
     this.rig = new CameraRig(this.camera);
+    this.targetCam = new TargetCam(this.renderer);
     this.hud = new HUD(this.dom.hud);
     this.input = new Input(this.dom.gl);
     this._applyInputSettings();
@@ -301,8 +308,14 @@ export class Game {
     battle.on('aircraftCrashed', (ac) => {
       if (ac.isPlayer) this.hud.showCenter(ac.fm.crashReason || 'CRASHED', 3);
     });
+    battle.on('sonicBoom', (ac) => {
+      if (ac.isPlayer) {
+        this.hud.showFlash('MACH 1  -  SOUND BARRIER', 2.4);
+        mission.onSonicBoom?.(ac);
+      }
+    });
     mission.setup(battle);
-    this.targeting = new Targeting(battle);
+    this.targeting = new Targeting(battle, this.settings);
     this._setLoading(true, 'Streaming terrain…', 0.8);
     await nextFrame();
     this.rig.setMode('chase');
@@ -451,13 +464,25 @@ export class Game {
         this.hud.showCenter(c.gear ? 'GEAR DOWN' : 'GEAR UP', 1.2);
       }
       if (input.missile) {
-        if (p.missiles <= 0) this.hud.showCenter('NO MISSILES', 1);
+        if (p.civil) this.hud.showCenter('UNARMED AIRCRAFT', 1);
+        else if (p.missiles <= 0) this.hud.showCenter('NO MISSILES', 1);
         else if (p.missileCooldown <= 0) {
           const locked = this.targeting.fire();
           const call = this.targeting.missileType === 'radar' ? 'FOX 3!' : 'FOX 2!';
           this.hud.showCenter(locked ? call : 'NO LOCK - UNGUIDED', 1);
           if (locked) this.audio.speak(this.targeting.missileType === 'radar' ? 'Fox three' : 'Fox two', 'fox', 2);
+          if (this.settings.weaponCam && this.targeting.lastMissile) this.rig.followWeapon(this.targeting.lastMissile);
         }
+      }
+      if (input.lockView && !p.civil) {
+        if (this.targeting.selectInView(this.camera)) this.hud.showCenter('TARGET DESIGNATED', 0.8);
+      }
+      if (input.weaponCam) {
+        this.settings.weaponCam = !this.settings.weaponCam;
+        this.save.write();
+        this.hud.showCenter(this.settings.weaponCam ? 'WEAPON CAM ON' : 'WEAPON CAM OFF', 1.2);
+        const m = this.targeting.lastMissile;
+        if (this.settings.weaponCam && m && m.alive) this.rig.followWeapon(m);
       }
       if (input.flare && p.flares > 0) this.flareProgram = 3;
       c.flare = false;
@@ -476,6 +501,7 @@ export class Game {
       this.hud.modeTimer = 1.5;
     }
     this.targeting.update(dt);
+    if (this.targeting.newLock) this.audio.click();
     this.rig.lookTarget = this.targeting.target;
 
     battle.update(dt);
@@ -495,6 +521,7 @@ export class Game {
       this.audio.updateEngine({
         active: p.alive, throttle: p.fm.throttle, ab: p.fm.afterburner, speed: p.fm.airspeed, cockpit,
         gLoad: p.fm.gLoad, airbrake: p.controls.airbrake, gunFiring: p.gunFiring, gunRate: p.spec.weapons.gunRate,
+        turbofan: !!p.spec.flight.noAB, supersonicExternal: p.fm.mach > 1.0 && !cockpit,
       });
     }
 
@@ -513,8 +540,21 @@ export class Game {
     this.dom.fxRed.style.opacity = this.damageFlash.toFixed(3);
     this.dom.fxWhite.style.opacity = cloud.toFixed(3);
 
+    // targeting pod: zoomed video of the target (PiP outside, MFD in the cockpit)
+    const tc = this.targetCam;
+    const wantPod = p && p.alive && !p.civil && this.settings.targetCam !== false && this.qualityKey !== 'low' && this.targeting.target;
+    if (wantPod) tc.update(dt, this.world.scene, p, this.targeting.target, this.camera);
+    else tc.active = false;
+    if (cockpit && p && p.model.cockpit) {
+      p.model.cockpit.update(dt, { ac: p, battle, targeting: this.targeting, warnings: this.hud.warnings, tgpTexture: tc.texture });
+    }
     this._render(dt);
-    this.hud.draw(dt, { camera: this.camera, battle, mission, targeting: this.targeting, cameraMode: this.rig.mode, settings: this.settings });
+    if (tc.active && !cockpit && this.rig.mode !== 'weapon') {
+      const w = Math.round(Math.min(300, window.innerWidth * 0.22)), h = Math.round(w * 0.75);
+      tc.present({ x: window.innerWidth - w - 18, y: 70, w, h });
+    } else tc.rect = null;
+    const wc = this.rig.mode === 'weapon' && this.rig.weapon ? (this.rig.weapon.alive ? `${Math.round(this.rig.weapon.vel.length() * 1.944)} KT` : 'IMPACT') : null;
+    this.hud.draw(dt, { camera: this.camera, battle, mission, targeting: this.targeting, cameraMode: this.rig.mode, settings: this.settings, targetCam: tc.rect ? tc : null, weaponCam: wc });
     if (p && p.alive) {
       this.audio.updateWarnings({ seeker: this.targeting.seeker, ...this.hud.warnings }, dt);
       if (this.hud.warnings.pullup) this.audio.speak('Pull up! Pull up!', 'pullup', 3);

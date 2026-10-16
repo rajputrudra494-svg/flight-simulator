@@ -66,12 +66,13 @@ export function sampleSection(sections, z) {
  * section: { z, w, top, bot, y, x?, n?, nb? }  (n: superellipse exponent for top half, nb: bottom half)
  * Sections must be ordered with increasing z (nose -> tail).
  */
-export function loft(sections, { radial = 28, smooth = 3, capStart = true, capEnd = true, uvScale = 1 } = {}) {
+export function loft(sections, { radial = 28, smooth = 3, capStart = true, capEnd = true, uvScale = 1, uvZ = null } = {}) {
   const secs = resampleSections(sections, smooth);
   const R = radial;
   const positions = [];
   const uvs = [];
-  const z0 = secs[0].z, z1 = secs[secs.length - 1].z;
+  // uvZ lets several lofts share one texture: u is measured between two fixed z values
+  const z0 = uvZ ? uvZ[0] : secs[0].z, z1 = uvZ ? uvZ[1] : secs[secs.length - 1].z;
   for (const s of secs) {
     const n = s.n ?? 2, nb = s.nb ?? n;
     for (let j = 0; j <= R; j++) {

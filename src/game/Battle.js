@@ -10,6 +10,10 @@ import { Effects } from '../fx/Effects.js';
 import { TrailSystem } from '../fx/Trails.js';
 
 const _n = new THREE.Vector3();
+const _d = new THREE.Vector3();
+const _vd = new THREE.Vector3();
+
+const AIRLINES = ['NOVA', 'SKYWARD', 'AZURE', 'SAHARA', 'NORDIC', 'SPEEDBIRD', 'HORIZON'];
 
 export class Battle {
   constructor(game, world) {
@@ -32,10 +36,20 @@ export class Battle {
     this.effects.particles.setLighting(sunLight);
     this.trails.setLighting(sunLight);
     const map = this.map;
-    const groundResult = { h: 0, water: false, landable: false, runway: false };
+    const groundResult = { h: 0, water: false, landable: false, runway: false, building: false };
     this.env = {
-      groundAt: (x, z) => {
+      groundAt: (x, z, y = Infinity) => {
         const h = map.heightAt(x, z);
+        const roof = map.buildingTopAt(x, z, y);
+        if (roof > Math.max(h, map.waterLevel)) {
+          groundResult.h = roof;
+          groundResult.water = false;
+          groundResult.landable = false;
+          groundResult.runway = false;
+          groundResult.building = true;
+          return groundResult;
+        }
+        groundResult.building = false;
         if (h < map.waterLevel) {
           groundResult.h = map.waterLevel;
           groundResult.water = true;
@@ -70,6 +84,7 @@ export class Battle {
     const ac = new Aircraft(spec, this.quality, opts);
     this.scene.add(ac.root);
     ac.attachTrails(this.trails);
+    if (this.world.vaporLight) ac.model.setVaporLight(this.world.vaporLight);
     if (opts.position) {
       if (opts.onRunway) ac.placeOnRunway(opts.position, opts.heading || 0);
       else ac.place(opts.position, opts.heading || 0, opts.speed ?? 220, opts.pitch || 0);
@@ -82,6 +97,28 @@ export class Battle {
     this.aircraft.push(ac);
     if (opts.isPlayer) this.player = ac;
     return ac;
+  }
+
+  // Background airliner traffic flying wide circuits around a point.
+  spawnTraffic(count, { center, radius = 14000, altMin = 1500, altMax = 10500, rand = Math.random } = {}) {
+    const ids = ['a320', 'b737', 'b777', 'b747', 'a380', 'a320', 'b737', 'b777'];
+    const c = center || new THREE.Vector3(this.map.airbase.x, 0, this.map.airbase.z);
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const id = ids[Math.floor(rand() * ids.length)];
+      const a = rand() * Math.PI * 2, r = radius * (0.35 + rand() * 0.65);
+      const alt = altMin + rand() * (altMax - altMin);
+      const ground = this.map.maxHeightAround(c.x + Math.cos(a) * r, c.z + Math.sin(a) * r, 2000);
+      const pos = new THREE.Vector3(c.x + Math.cos(a) * r, Math.max(alt, ground + 900), c.z + Math.sin(a) * r);
+      const callsign = `${AIRLINES[Math.floor(rand() * AIRLINES.length)]} ${100 + Math.floor(rand() * 899)}`;
+      const ac = this.spawnAircraft(id, {
+        team: 'civil', isTarget: false, position: pos, heading: (THREE.MathUtils.radToDeg(a) + 90 + 360) % 360, speed: 200 + rand() * 30,
+        ai: { role: 'civil', patrolCenter: c.clone().setY(pos.y), patrolRadius: r, patrolAlt: pos.y, cruise: 0.6 }, callsign,
+      });
+      ac.label = callsign;
+      out.push(ac);
+    }
+    return out;
   }
 
   spawnGround(type, x, z, heading = 0, opts = {}) {
@@ -100,6 +137,12 @@ export class Battle {
   onPlayerDamaged(amount, source) { this.emit('playerDamaged', amount, source); }
   onMissileLaunched(m) { this.emit('missileLaunched', m); }
   onFlares(owner) { this.emit('flares', owner); }
+  onSonicBoom(ac) {
+    this.effects.sonicBoom(ac);
+    // the pilot only feels a jolt; outside observers hear it when the cone arrives
+    if (ac.isPlayer && this.game.rig && this.game.rig.mode === 'cockpit') this.audio?.sonicBoom(0.35, true);
+    this.emit('sonicBoom', ac);
+  }
   onPlayerLocked(by, t) {
     if (this.player && t > 0.4) this.player.lockedBy = Math.max(this.player.lockedBy, 1);
     this.emit('playerLocked', by, t);
@@ -116,6 +159,7 @@ export class Battle {
       if (ac.ai) ac.ai.update(dt, this);
       ac.update(dt, this);
     }
+    this._supersonicEffects(dt);
     this.weapons.update(dt);
     this.effects.update(dt, this.camera);
     this.trails.update(dt, this.camera);
@@ -132,9 +176,48 @@ export class Battle {
     }
   }
 
+  // Mach cone sweeping over the listener -> boom; low supersonic passes over
+  // water kick up a rooster tail of spray.
+  _supersonicEffects(dt) {
+    const cam = this.camera;
+    const cockpit = this.game.rig && this.game.rig.mode === 'cockpit';
+    for (const ac of this.aircraft) {
+      if (!ac.alive) continue;
+      const fm = ac.fm;
+      if (fm.mach < 1.0) {
+        ac._coneIn = false;
+        continue;
+      }
+      const v = fm.airspeed || 1;
+      _d.subVectors(cam.position, ac.position);
+      const dist = _d.length();
+      let inside = false;
+      if (dist > 1) {
+        const cosA = -_d.dot(_vd.copy(ac.velocity).divideScalar(v)) / dist;
+        const mu = Math.asin(Math.min(1, 1 / fm.mach));
+        inside = cosA > Math.cos(mu);
+      }
+      if (inside && !ac._coneIn && dist < 16000 && !(ac.isPlayer && cockpit)) {
+        const gain = 1.2 / (1 + dist / 1800);
+        this.audio?.sonicBoom(gain, false);
+        if (dist < 2500) this.effects.shake = Math.max(this.effects.shake, 0.9 * (1 - dist / 2500));
+      }
+      ac._coneIn = inside;
+      // spray over water at very low level
+      const agl = ac.position.y - this.map.waterLevel;
+      if (agl < 45 && this.map.heightAt(ac.position.x, ac.position.z) < this.map.waterLevel - 1) {
+        ac._sprayT = (ac._sprayT || 0) - dt;
+        if (ac._sprayT <= 0) {
+          ac._sprayT = 0.03;
+          this.effects.waterSpray(_d.set(ac.position.x, this.map.waterLevel, ac.position.z), ac.velocity, 1 - agl / 45);
+        }
+      }
+    }
+  }
+
   hostilesOf(team) {
     const out = [];
-    for (const a of this.aircraft) if (a.alive && !a.dying && a.team !== team) out.push(a);
+    for (const a of this.aircraft) if (a.alive && !a.dying && a.team !== team && a.team !== 'civil') out.push(a);
     for (const g of this.ground) if (g.alive && g.team !== team) out.push(g);
     return out;
   }

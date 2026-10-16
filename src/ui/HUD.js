@@ -31,7 +31,15 @@ export class HUD {
     this.centerTimer = 0;
     this.maxG = 1;
     this.damageFlash = 0;
+    this.flashText = null;
+    this.flashTimer = 0;
     this.resize();
+  }
+
+  // big military-style callout (MACH 1, SPLASH, ...)
+  showFlash(text, time = 2) {
+    this.flashText = text;
+    this.flashTimer = time;
   }
 
   resize(maxDpr = 2) {
@@ -68,7 +76,8 @@ export class HUD {
   }
 
   draw(dt, g) {
-    const { camera, battle, mission, targeting, cameraMode, settings } = g;
+    const { camera, battle, mission, targeting, cameraMode, settings, targetCam, weaponCam } = g;
+    this.pipRect = targetCam && targetCam.active ? targetCam.rect : null;
     const ctx = this.ctx;
     this.clear();
     if (!this.visible || !battle || !battle.player) return;
@@ -87,6 +96,7 @@ export class HUD {
     this.flash += dt;
     const blink = Math.floor(this.flash * 3) % 2 === 0;
     const alive = p.alive && !p.dying;
+    const civil = !!p.civil;
 
     ctx.lineWidth = 1.6 * S;
     ctx.strokeStyle = HUD_GREEN;
@@ -181,8 +191,9 @@ export class HUD {
       const vs = metric ? p.velocity.y : p.velocity.y * 196.85;
       ctx.fillText(`VS ${vs >= 0 ? '+' : ''}${Math.round(vs)}`, cx + 222 * S, cy + 58 * S);
 
-      // --- Heading tape
+      // --- Heading tape and bank scale
       this._headingTape(cx, cy - 210 * S, att.heading, S);
+      this._bankScale(hudCx, hudCy, camera, S);
 
       // --- Left data block
       ctx.font = `${14 * S}px ${FONT}`;
@@ -199,18 +210,28 @@ export class HUD {
       // throttle
       this._throttle(cx - 330 * S, cy + 40 * S, fm.throttle, fm.afterburner, S, p.controls.airbrake, p.controls.gear);
 
-      // --- Weapons block
+      // --- Weapons block (master arm, selected missile, gun, flares)
       const rx = cx + 200 * S, ry = cy + 110 * S;
       ctx.textAlign = 'left';
-      ctx.fillStyle = HUD_GREEN;
-      const mt = targeting ? MISSILE_TYPES[targeting.missileType].name : 'IR';
-      ctx.fillText(`${mt} MSL ${p.missiles}`, rx, ry);
-      ctx.fillText(`GUN ${p.gunAmmo}`, rx, ry + 18 * S);
-      ctx.fillStyle = p.flares > 0 ? HUD_GREEN : AMBER;
-      ctx.fillText(`FLR ${p.flares}`, rx, ry + 36 * S);
+      if (civil) {
+        ctx.fillStyle = HUD_GREEN;
+        ctx.fillText(p.controls.gear ? 'FLAPS FULL' : 'CLEAN', rx, ry);
+        ctx.fillText(`N1 ${Math.round(22 + fm.throttle * 76)}%`, rx, ry + 18 * S);
+        ctx.fillText(`GW ${Math.round(fm.mass / 1000)}T`, rx, ry + 36 * S);
+      } else {
+        const isRadar = targeting && targeting.missileType === 'radar';
+        ctx.fillStyle = HUD_DIM;
+        ctx.fillText('ARM  A/A', rx, ry - 20 * S);
+        ctx.fillStyle = HUD_GREEN;
+        ctx.fillText(`${isRadar ? 'MRM RDR' : 'SRM IR'}  x${p.missiles}`, rx, ry);
+        ctx.fillText(`GUN ${p.gunAmmo}`, rx, ry + 18 * S);
+        ctx.fillStyle = p.flares > 0 ? HUD_GREEN : AMBER;
+        ctx.fillText(`FLR ${p.flares}`, rx, ry + 36 * S);
+      }
 
       // --- Targets
-      this._targets(camera, battle, targeting, p, S, blink);
+      this._targets(camera, battle, civil ? null : targeting, p, S, blink);
+      if (!civil && targeting && targeting.target) this._targetInfo(targeting, p, S);
       // --- Next ring
       if (mission && mission.rings && mission.rings.current) this._ringMarker(camera, mission.rings.current, p, S);
       // --- Incoming missiles
@@ -252,12 +273,32 @@ export class HUD {
       this.warnings = { missile: false, pullup: false, stall: false, radar: false };
     }
 
-    // --- Radar scope
+    // --- Radar scope, RWR and the targeting-pod window
     this._radar(battle, mission, p, S);
+    if (!civil) this._rwr(battle, p, S, blink);
+    if (targetCam && targetCam.active && targetCam.rect) this._tgpFrame(targetCam, targeting, p, S);
+    if (weaponCam) {
+      ctx.textAlign = 'center';
+      ctx.font = `bold ${16 * S}px ${FONT}`;
+      ctx.fillStyle = WHITE;
+      ctx.fillText(`WEAPON CAM  ${weaponCam}`, cx, 70 * S);
+    }
     // --- Mission panel
     if (mission) this._missionPanel(mission, S);
     // --- Health
     this._health(p, S);
+
+    // --- Flash callout
+    if (this.flashText && this.flashTimer > 0) {
+      this.flashTimer -= dt;
+      const a = Math.min(1, this.flashTimer * 1.5);
+      ctx.textAlign = 'center';
+      ctx.font = `bold ${30 * S}px ${FONT}`;
+      ctx.fillStyle = `rgba(255,235,170,${a})`;
+      ctx.shadowBlur = 8;
+      ctx.fillText(this.flashText, cx, cy - 160 * S);
+      ctx.shadowBlur = 0;
+    }
 
     // --- Centre text
     if (this.centerText && this.centerTimer > 0) {
@@ -409,17 +450,41 @@ export class HUD {
       const d = e.position.distanceTo(p.position);
       if (d > 20000 && e !== cur) continue;
       this.project(camera, e.position, scr);
-      const hostile = e.team !== p.team;
+      const civilAc = e.team === 'civil';
+      const hostile = e.team !== p.team && !civilAc;
       if (!scr.on) continue;
-      const col = hostile ? (e === cur ? RED : 'rgba(255,110,90,0.8)') : CYAN;
+      if (civilAc && d > 9000) continue;
+      // keep other symbols out of the targeting-pod window
+      const pr = this.pipRect;
+      if (pr && e !== cur && scr.x > pr.x && scr.x < pr.x + pr.w && scr.y > pr.y && scr.y < pr.y + pr.h) continue;
+      const col = civilAc ? 'rgba(230,236,240,0.75)' : hostile ? (e === cur ? RED : 'rgba(255,110,90,0.8)') : CYAN;
       ctx.strokeStyle = col;
       ctx.fillStyle = col;
       const sz = (e.kind === 'air' ? 11 : 9) * S;
       ctx.beginPath();
       if (e === cur) {
-        ctx.lineWidth = 2 * S;
-        ctx.strokeRect(scr.x - sz * 1.6, scr.y - sz * 1.6, sz * 3.2, sz * 3.2);
+        // target designator: corner brackets that tighten as the lock builds
+        const k = targeting ? targeting.lock / Math.max(0.01, targeting.lockTime) : 0;
+        const hs = sz * (2.4 - k * 0.9);
+        const arm = hs * 0.55;
+        ctx.lineWidth = 2.2 * S;
+        ctx.beginPath();
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          ctx.moveTo(scr.x + sx * hs, scr.y + sy * (hs - arm));
+          ctx.lineTo(scr.x + sx * hs, scr.y + sy * hs);
+          ctx.lineTo(scr.x + sx * (hs - arm), scr.y + sy * hs);
+        }
+        ctx.stroke();
+        if (targeting && targeting.locked) {
+          ctx.beginPath();
+          ctx.moveTo(scr.x, scr.y - sz * 0.9); ctx.lineTo(scr.x + sz * 0.9, scr.y); ctx.lineTo(scr.x, scr.y + sz * 0.9); ctx.lineTo(scr.x - sz * 0.9, scr.y); ctx.closePath();
+          ctx.stroke();
+        }
         ctx.lineWidth = 1.6 * S;
+      } else if (civilAc) {
+        ctx.beginPath();
+        ctx.arc(scr.x, scr.y, sz * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
       } else if (e.kind === 'air') {
         ctx.moveTo(scr.x, scr.y - sz); ctx.lineTo(scr.x + sz, scr.y); ctx.lineTo(scr.x, scr.y + sz); ctx.lineTo(scr.x - sz, scr.y); ctx.closePath();
         ctx.stroke();
@@ -429,7 +494,7 @@ export class HUD {
       }
       if (e === cur || d < 6000) {
         ctx.textAlign = 'center';
-        const label = e.kind === 'air' ? (e.label || 'BANDIT') : e.name;
+        const label = civilAc ? (e.label || 'CIV') : e.kind === 'air' ? (e.label || 'BANDIT') : e.name;
         const dist = this.units === 'metric' ? `${(d / 1000).toFixed(1)}km` : `${(d / 1852).toFixed(1)}nm`;
         ctx.fillText(label, scr.x, scr.y - sz * 2.4);
         ctx.fillText(dist, scr.x, scr.y + sz * 2.6);
@@ -461,7 +526,7 @@ export class HUD {
     if (p.missiles > 0 && targeting) {
       _v.set(0, 0, -1).applyQuaternion(p.quaternion).multiplyScalar(3000).add(p.position);
       const bore = this.project(camera, _v, {});
-      const cone = MISSILE_TYPES[targeting.missileType].lockCone;
+      const cone = Math.min(1.4, MISSILE_TYPES[targeting.missileType].lockCone * (targeting.assist ? 1.45 : 1));
       const rad = (H / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * Math.tan(cone);
       ctx.strokeStyle = targeting.locked ? RED : HUD_DIM;
       ctx.setLineDash(targeting.inCone ? [] : [4 * S, 6 * S]);
@@ -479,11 +544,16 @@ export class HUD {
         ctx.moveTo(lx, ly - ds); ctx.lineTo(lx + ds, ly); ctx.lineTo(lx, ly + ds); ctx.lineTo(lx - ds, ly); ctx.closePath();
         ctx.stroke();
         ctx.lineWidth = 1.6 * S;
-        if (targeting.locked && blink) {
+        if (targeting.locked) {
           ctx.fillStyle = RED;
           ctx.font = `bold ${15 * S}px ${FONT}`;
           ctx.textAlign = 'center';
-          ctx.fillText('LOCK', lx, ly - ds - 12 * S);
+          if (blink || targeting.shoot) ctx.fillText(targeting.shoot ? 'SHOOT' : 'LOCK', lx, ly - ds - 12 * S);
+        } else {
+          ctx.fillStyle = AMBER;
+          ctx.font = `${12 * S}px ${FONT}`;
+          ctx.textAlign = 'center';
+          ctx.fillText(`LOCKING ${Math.round(k * 100)}%`, lx, ly + ds + 14 * S);
         }
       }
     }
@@ -509,6 +579,146 @@ export class HUD {
         ctx.stroke();
         ctx.lineWidth = 1.6 * S;
       }
+    }
+  }
+
+  // Rolling bank-angle scale above the boresight
+  _bankScale(x, y, camera, S) {
+    const ctx = this.ctx;
+    const roll = this._cameraRoll(camera);
+    const R = 150 * S;
+    ctx.save();
+    ctx.strokeStyle = HUD_DIM;
+    ctx.lineWidth = 1.4 * S;
+    ctx.beginPath();
+    for (const deg of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
+      const a = (deg * Math.PI) / 180 - Math.PI / 2;
+      const r0 = R, r1 = R + (deg % 30 === 0 ? 10 : 6) * S;
+      ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0 + R * 0.35);
+      ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1 + R * 0.35);
+    }
+    ctx.stroke();
+    // pointer showing the current bank
+    const a = -roll - Math.PI / 2;
+    ctx.fillStyle = HUD_GREEN;
+    ctx.beginPath();
+    const px = x + Math.cos(a) * (R - 3 * S), py = y + Math.sin(a) * (R - 3 * S) + R * 0.35;
+    ctx.translate(px, py);
+    ctx.rotate(a + Math.PI / 2);
+    ctx.moveTo(0, 0); ctx.lineTo(-5 * S, 9 * S); ctx.lineTo(5 * S, 9 * S); ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Target data block: type, range, altitude, speed, aspect and closure
+  _targetInfo(targeting, p, S) {
+    const ctx = this.ctx;
+    const t = targeting.target;
+    const metric = this.units === 'metric';
+    const x = 20 * S, y = this.h - 210 * S;
+    const d = t.position.distanceTo(p.position);
+    const tv = t.velocity || _w.set(0, 0, 0);
+    _v.subVectors(t.position, p.position).normalize();
+    const closure = -_v.dot(_p.subVectors(tv, p.velocity));
+    let aspect = '---';
+    if (t.kind === 'air' && t.quaternion) {
+      const tf = _w.set(0, 0, -1).applyQuaternion(t.quaternion);
+      const ang = Math.round(THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(-tf.dot(_v), -1, 1))));
+      aspect = `${String(180 - ang).padStart(3, '0')}`;
+    }
+    const name = t.kind === 'air' ? (t.spec ? t.spec.name.toUpperCase() : 'BANDIT') : t.name;
+    const rows = [
+      ['TGT', name],
+      ['RNG', metric ? `${(d / 1000).toFixed(1)} KM` : `${(d / 1852).toFixed(1)} NM`],
+      ['ALT', metric ? `${Math.round(t.position.y)} M` : `${Math.round(t.position.y * 3.281)} FT`],
+      ['SPD', t.kind === 'air' && t.fm ? `${Math.round(t.fm.ias * 1.944)} KT` : `${Math.round(tv.length() * 1.944)} KT`],
+      ['ASP', aspect],
+      ['VC', `${closure >= 0 ? '+' : ''}${Math.round(closure * 1.944)} KT`],
+    ];
+    ctx.fillStyle = 'rgba(4,20,12,0.45)';
+    ctx.fillRect(x - 6 * S, y - 14 * S, 196 * S, rows.length * 17 * S + 12 * S);
+    ctx.font = `${13 * S}px ${FONT}`;
+    ctx.textAlign = 'left';
+    rows.forEach(([k, v], i) => {
+      ctx.fillStyle = HUD_DIM;
+      ctx.fillText(k, x, y + i * 17 * S);
+      ctx.fillStyle = i === 0 ? (targeting.locked ? RED : AMBER) : HUD_GREEN;
+      ctx.fillText(v.slice(0, 18), x + 44 * S, y + i * 17 * S);
+    });
+  }
+
+  // Radar warning receiver: threat symbols around a small scope
+  _rwr(battle, p, S, blink) {
+    const ctx = this.ctx;
+    const R = 46 * S;
+    const x = this.w - 20 * S - R, y = this.h - 70 * S - R;
+    ctx.fillStyle = 'rgba(4,20,12,0.5)';
+    ctx.strokeStyle = 'rgba(110,255,150,0.45)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, R * 0.5, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(110,255,150,0.2)';
+    ctx.stroke();
+    ctx.font = `bold ${11 * S}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = HUD_DIM;
+    ctx.fillText('RWR', x, y - R - 7 * S);
+    const hd = THREE.MathUtils.degToRad(p.fm.attitude(this._att3 || (this._att3 = {})).heading);
+    const plot = (pos, sym, level) => {
+      const brg = Math.atan2(pos.x - p.position.x, -(pos.z - p.position.z)) - hd;
+      const r = level >= 2 ? R * 0.32 : level === 1 ? R * 0.62 : R * 0.86;
+      const px = x + Math.sin(brg) * r, py = y - Math.cos(brg) * r;
+      if (level >= 2 && !blink) return;
+      ctx.fillStyle = level >= 2 ? RED : level === 1 ? AMBER : HUD_GREEN;
+      ctx.fillText(sym, px, py + 4 * S);
+    };
+    for (const a of battle.aircraft) {
+      if (!a.alive || a.dying || a.team === p.team || a.team === 'civil') continue;
+      const d = a.position.distanceTo(p.position);
+      if (d > 25000) continue;
+      const locking = a.ai && a.ai.target === p && a.ai.lockTimer > 0;
+      plot(a.position, a.spec.id.replace(/[^0-9]/g, '').slice(0, 2) || 'F', locking ? 1 : 0);
+    }
+    for (const gu of battle.ground) {
+      if (!gu.alive || !gu.range || gu.team === p.team) continue;
+      if (gu.position.distanceTo(p.position) > gu.range * 1.4) continue;
+      plot(gu.position, gu.type === 'aaa' ? 'A' : gu.type === 'ship' ? 'N' : 'S', gu.lockTime > 0.5 && gu.hasLos ? 1 : 0);
+    }
+    for (const m of battle.weapons.threatsTo(p)) plot(m.pos, 'M', 2);
+  }
+
+  // Frame and symbology over the targeting-pod picture-in-picture
+  _tgpFrame(tc, targeting, p, S) {
+    const ctx = this.ctx;
+    const r = tc.rect;
+    ctx.strokeStyle = HUD_GREEN;
+    ctx.lineWidth = 1.5 * S;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 30 * S, cy); ctx.lineTo(cx - 8 * S, cy);
+    ctx.moveTo(cx + 8 * S, cy); ctx.lineTo(cx + 30 * S, cy);
+    ctx.moveTo(cx, cy - 22 * S); ctx.lineTo(cx, cy - 6 * S);
+    ctx.moveTo(cx, cy + 6 * S); ctx.lineTo(cx, cy + 22 * S);
+    ctx.stroke();
+    if (targeting && targeting.locked) ctx.strokeRect(cx - 14 * S, cy - 14 * S, 28 * S, 28 * S);
+    ctx.font = `${11 * S}px ${FONT}`;
+    ctx.fillStyle = HUD_GREEN;
+    ctx.textAlign = 'left';
+    ctx.fillText(`TGP  TV  ${tc.zoom.toFixed(1)}X`, r.x + 6 * S, r.y + 12 * S);
+    ctx.textAlign = 'right';
+    const t = tc.target;
+    if (t) {
+      const d = t.position.distanceTo(p.position);
+      ctx.fillText(`${(d / 1852).toFixed(1)} NM`, r.x + r.w - 6 * S, r.y + 12 * S);
+      ctx.textAlign = 'left';
+      ctx.fillText(t.kind === 'air' ? (t.label || 'BANDIT') : t.name, r.x + 6 * S, r.y + r.h - 8 * S);
+      ctx.textAlign = 'right';
+      ctx.fillText(targeting && targeting.locked ? 'TRK  LOCK' : 'TRK  AREA', r.x + r.w - 6 * S, r.y + r.h - 8 * S);
     }
   }
 
@@ -624,10 +834,17 @@ export class HUD {
       ctx.fillStyle = g.team === p.team ? CYAN : 'rgba(255,120,90,0.9)';
       ctx.fillRect(pt.x - 2.5 * S, pt.y - 2.5 * S, 5 * S, 5 * S);
     }
+    // rotating sweep
+    this.sweepA = ((this.sweepA || 0) + 0.035) % (Math.PI * 2);
+    ctx.strokeStyle = 'rgba(110,255,150,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(this.sweepA) * R, y + Math.sin(this.sweepA) * R);
+    ctx.stroke();
     for (const a of battle.aircraft) {
       if (!a.alive || a.dying || a === p) continue;
       toRadar(a.position, pt);
-      ctx.fillStyle = a.team === p.team ? CYAN : RED;
+      ctx.fillStyle = a.team === 'civil' ? 'rgba(230,236,240,0.8)' : a.team === p.team ? CYAN : RED;
       ctx.beginPath();
       ctx.moveTo(pt.x, pt.y - 4.5 * S); ctx.lineTo(pt.x + 4 * S, pt.y + 3.5 * S); ctx.lineTo(pt.x - 4 * S, pt.y + 3.5 * S); ctx.closePath();
       ctx.fill();

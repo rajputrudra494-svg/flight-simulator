@@ -123,13 +123,13 @@ export class Weapons {
           }
         }
       }
-      // terrain / water
+      // terrain / water / buildings
       if (!hit && bl.pos.y < 6000) {
         const h = map.heightAt(bl.pos.x, bl.pos.z);
-        const s = Math.max(h, map.waterLevel);
+        const s = map.surfaceAt(bl.pos.x, bl.pos.z, bl.pos.y);
         if (bl.pos.y <= s) {
           bl.pos.y = s;
-          if (Math.random() < 0.5) b.effects.groundImpact(bl.pos, h < map.waterLevel);
+          if (Math.random() < 0.5) b.effects.groundImpact(bl.pos, h < map.waterLevel && s <= map.waterLevel + 0.01);
           hit = true;
         }
       }
@@ -155,14 +155,14 @@ export class Weapons {
   }
 
   // ---------------------------------------------------------------- missiles
-  canLock(owner, target, typeKey = 'ir') {
+  canLock(owner, target, typeKey = 'ir', coneScale = 1, rangeScale = 1) {
     const t = MISSILE_TYPES[typeKey];
     _a.subVectors(target.position, owner.position);
     const dist = _a.length();
-    if (dist > t.range || dist < 250) return false;
+    if (dist > t.range * rangeScale || dist < 200) return false;
     _a.divideScalar(dist);
     const fwd = _fwd.set(0, 0, -1).applyQuaternion(owner.quaternion);
-    return Math.acos(Math.max(-1, Math.min(1, fwd.dot(_a)))) < t.lockCone;
+    return Math.acos(Math.max(-1, Math.min(1, fwd.dot(_a)))) < Math.min(1.4, t.lockCone * coneScale);
   }
 
   launchMissile(owner, target, typeKey = 'ir', origin = null) {
@@ -201,6 +201,8 @@ export class Weapons {
     const m = {
       owner, target, type: typeKey, t, pos, vel, quat, mesh, trail, age: 0, alive: true, slotMesh,
       prevDist: Infinity, lastPos: pos.clone(), lostTrack: false,
+      // the player's datalinked missiles track a little more stubbornly
+      seekerScale: owner.isPlayer ? 1.35 : 1, decoyScale: owner.isPlayer ? 0.75 : 1,
       decoyChecked: new Set(),
     };
     this.missiles.push(m);
@@ -224,7 +226,7 @@ export class Weapons {
       const dist = _a.length();
       const los = _b.copy(_a).divideScalar(Math.max(dist, 1e-3));
       const off = Math.acos(Math.max(-1, Math.min(1, fwd.dot(los))));
-      if (!tAlive || (off > t.seeker && m.age > 0.6)) {
+      if (!tAlive || (off > t.seeker * m.seekerScale && m.age > 0.6)) {
         m.lostTrack = true;
       } else if (m.age > 0.25) {
         // proportional navigation
@@ -280,14 +282,14 @@ export class Weapons {
       if (f.age < 0.15) continue;
       m.decoyChecked.add(f);
       _c.subVectors(f.pos, m.pos).normalize();
-      if (_c.dot(_a) > Math.cos(t.seeker) && Math.random() < t.decoy) {
+      if (_c.dot(_a) > Math.cos(t.seeker) && Math.random() < t.decoy * m.decoyScale) {
         tgt.incoming = Math.max(0, tgt.incoming - 1);
         m.target = f;
         break;
       }
     }
     // ground
-    const ground = b.map.surfaceAt(m.pos.x, m.pos.z);
+    const ground = b.map.surfaceAt(m.pos.x, m.pos.z, m.pos.y);
     if (m.pos.y <= ground) {
       m.pos.y = ground;
       this._detonate(m, m.pos.clone(), null, true);

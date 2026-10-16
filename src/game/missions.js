@@ -299,6 +299,320 @@ export const MISSIONS = [
       void wave;
     },
   },
+  {
+    id: 'm11',
+    name: 'Skyline Shield',
+    map: 'metro',
+    time: 'afternoon',
+    difficulty: 3,
+    type: 'City defence',
+    briefing:
+      'A strike package is coming over the northern mountains to hit downtown Metro Bay. Four heavy bombers with a fighter escort. The skies are full of airliners, so check your targets: shoot only what the radar marks hostile. If a single bomber reaches the city centre, the mission fails.',
+    tips: ['Bombers are marked BOMBER: they are the priority', 'White circles are civil airliners: never fire at them', 'Press Y to lock the bandit you are looking at'],
+    stars: [2000, 2900],
+    par: 330,
+    areaRadius: 34000,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      const city = ctx.map.def.city;
+      const down = V(city.districts[0].x, 0, city.districts[0].z);
+      ctx.startAir(V(ab.x - 4000, 2400, ab.z - 5000), 300, 240);
+      ctx.traffic(5, { center: V(city.x, 0, city.z), radius: 15000, altMin: 2500, altMax: 9000 });
+      const from = V(-2500, 3300, -26000);
+      const route = [V(-1200, 2800, -12000), V(down.x, 1100, down.z)];
+      const bombers = [];
+      for (let i = 0; i < 4; i++) {
+        const p = from.clone().add(V((i % 2) * 260 - 130, (i >> 1) * 90, Math.floor(i / 2) * 300));
+        bombers.push(ctx.enemyAir('su35', p, 180, { role: 'bomber', skill: 0.3, aggressive: false, route: route.map((r) => r.clone().add(V((i - 1.5) * 220, 0, 0))), loop: false, cruise: 0.7, missiles: 0, label: 'BOMBER', massScale: 1.3, healthScale: 1.2 }));
+      }
+      ctx.enemyAir('mig29', from.clone().add(V(-500, 700, -300)), 180, { skill: 0.55, role: 'escort', escortOf: bombers[0] });
+      ctx.enemyAir('mig29', from.clone().add(V(500, 700, -300)), 180, { skill: 0.55, role: 'escort', escortOf: bombers[1] });
+      ctx.wave(() => {
+        ctx.radio('Two Typhoons inbound from the east, they want those bombers through!');
+        const p = V(18000, 3500, -6000);
+        ctx.enemyAir('typhoon', p, 270, { skill: 0.6, engaged: true });
+        ctx.enemyAir('typhoon', p.clone().add(V(400, 150, 300)), 270, { skill: 0.6, engaged: true });
+      }, { afterKills: 3 });
+      ctx.objectiveDestroy('Destroy the strike bombers', (e) => e.role === 'bomber');
+      ctx.objectiveDestroy('Clear the escorts', (e) => e.kind === 'air' && e.team === 'enemy' && e.role !== 'bomber');
+      ctx.failIf(() => bombers.some((b) => b.alive && !b.dying && Math.hypot(b.position.x - down.x, b.position.z - down.z) < 1800), 'A bomber reached downtown');
+    },
+  },
+  {
+    id: 'm12',
+    name: 'Heavy Escort',
+    map: 'metro',
+    time: 'morning',
+    difficulty: 3,
+    type: 'Escort',
+    briefing:
+      'HEAVY 1, a Boeing 777 carrying the evacuated embassy staff, is inbound over the bay to Metro Bay International. Enemy interceptors will try to shoot it down before it lands. Stay with the airliner, kill every interceptor and see it safely onto final approach. If HEAVY 1 goes down, the mission fails.',
+    tips: ['The interceptors go for the airliner, not you: cut them off', 'Radar missiles reach targets beyond 4 km', 'Keep HEAVY 1 inside your radar circle'],
+    stars: [2200, 3200],
+    par: 300,
+    areaRadius: 34000,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      const L = ab.length / 2;
+      // final approach over the bay, landing on the reciprocal heading
+      const app = (d, h, speed) => Object.assign(V(ab.x + ab.dirX * (d + L), ab.elevation + h, ab.z + ab.dirZ * (d + L)), { speed });
+      const start = V(1500, 3400, 21000);
+      const heavy = ctx.friendlyAir('b777', start, 10, {
+        role: 'civil', label: 'HEAVY 1', speed: 215, priority: 0.3,
+        route: [Object.assign(V(5500, 3000, 12000), { speed: 210 }), app(13000, 1200, 160), app(6000, 340, 125), app(2500, 150, 105)],
+      });
+      ctx.startAir(start.clone().add(V(350, 250, 500)), 10, 225);
+      ctx.radio('HEAVY 1: escort, good to see you. We are counting on you.');
+      ctx.wave(() => {
+        ctx.radio('Bandits west, two MiGs heading for HEAVY 1!');
+        const p = V(-16000, 3000, 14000);
+        ctx.enemyAir('mig29', p, 90, { skill: 0.5, engaged: true });
+        ctx.enemyAir('mig29', p.clone().add(V(300, 200, 400)), 90, { skill: 0.5, engaged: true });
+      }, { delay: 6 });
+      ctx.wave(() => {
+        ctx.radio('Two Flankers low from the south-west!');
+        const p = V(-12000, 1500, 26000);
+        ctx.enemyAir('su35', p, 45, { skill: 0.6, engaged: true });
+        ctx.enemyAir('su35', p.clone().add(V(400, 100, 300)), 45, { skill: 0.6, engaged: true });
+      }, { afterKills: 2 });
+      ctx.wave(() => {
+        ctx.radio('Last pair, stealth fighters! Protect the heavy!');
+        const p = V(16000, 4000, 16000);
+        ctx.enemyAir('j20', p, 300, { skill: 0.65, engaged: true });
+        ctx.enemyAir('j20', p.clone().add(V(400, 200, 300)), 300, { skill: 0.65, engaged: true });
+      }, { afterKills: 4 });
+      ctx.objectiveEscort('Get HEAVY 1 to final approach', heavy, (ac) => Math.hypot(ac.position.x - ab.x, ac.position.z - ab.z) < L + 5500 && ac.position.y < ab.elevation + 700);
+      ctx.objectiveDestroy('Destroy all interceptors', (e) => e.kind === 'air' && e.team === 'enemy', { minCount: 6 });
+    },
+  },
+  {
+    id: 'm13',
+    name: 'Urban Strike',
+    map: 'desert',
+    time: 'dusk',
+    difficulty: 4,
+    type: 'City strike',
+    briefing:
+      'Insurgent air defences have been set up inside Desert Metropolis: SAM launchers on the rooftops, flak in the parks and a radar directing them. Fly the street canyons below the rooftops to stay hidden, pop up for the shot and get back down. Two fighters patrol overhead.',
+    tips: ['Below roof height the SAM radars cannot see you', 'Rooftop SAMs sit on the tallest blocks downtown', 'Watch the supertall tower: 828 metres of glass'],
+    stars: [2400, 3400],
+    par: 420,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      const city = ctx.map.def.city;
+      const d0 = city.districts[0], d1 = city.districts[1];
+      ctx.startAir(V(ab.x - 1500, 900, ab.z + 1000), 280, 230);
+      ctx.cityTarget('sam', d0.x + 600, d0.z + 400, 'roof', { minH: 40, maxH: 160 });
+      ctx.cityTarget('sam', d0.x - 700, d0.z - 500, 'roof', { minH: 40, maxH: 160 });
+      ctx.cityTarget('sam', d1.x, d1.z, 'park', { radius: 1600 });
+      ctx.cityTarget('radar', d0.x, d0.z, 'park', { radius: 1800 });
+      for (let i = 0; i < 4; i++) ctx.cityTarget('aaa', d0.x + (i - 1.5) * 900, d0.z + (i % 2 ? 900 : -900), 'park', { radius: 1200 });
+      ctx.cityTarget('aaa', d1.x + 500, d1.z - 600, 'park', { radius: 1200 });
+      const c = V(d0.x, 1800, d0.z);
+      ctx.enemyAir('mig29', c.clone().add(V(-2000, 0, 0)), 0, { skill: 0.5, patrolCenter: c, patrolRadius: 3000 });
+      ctx.enemyAir('mig29', c.clone().add(V(2000, 200, 0)), 180, { skill: 0.5, patrolCenter: c, patrolRadius: 3200 });
+      ctx.traffic(3, { center: V(city.x, 0, city.z), radius: 18000, altMin: 4000, altMax: 10000 });
+      ctx.objectiveDestroy('Destroy the city air defences', (e) => e.kind === 'ground' && e.isTarget);
+      ctx.objectiveDestroy('Shoot down the patrol', (e) => e.kind === 'air' && e.team === 'enemy');
+    },
+  },
+  {
+    id: 'm14',
+    name: 'Sonic Run',
+    map: 'desert',
+    time: 'noon',
+    difficulty: 3,
+    type: 'Speed trial',
+    briefing:
+      'A test-pilot trial: a ten-gate course low over the Gulf, and every gate only counts if you pass it above Mach 1. Stay below 400 metres or the trial is void. Break the sound barrier, keep the afterburner lit and enjoy the spray.',
+    tips: ['Use full afterburner (throttle above 90%) the whole way', 'Gentle corrections only: every turn bleeds speed', 'Fast jets with big engines (F-15, F-22, MiG-21) shine here'],
+    stars: [1700, 2300],
+    par: 110,
+    timeLimit: 150,
+    setup(ctx) {
+      const pts = [];
+      for (let i = 0; i < 10; i++) {
+        const z = -13000 + i * 2900;
+        pts.push(V(-12500 + Math.sin(i * 0.9) * 700, 120 + (i % 3) * 25, z));
+      }
+      ctx.startAir(V(-12500, 150, -19500), 0, 340, 1);
+      ctx.rings(pts, { radius: 70, minMach: 1.0 });
+      ctx.objectiveBoom('Break the sound barrier', 1);
+      ctx.ceiling(400, 'TOO HIGH - STAY LOW OVER THE WATER');
+    },
+  },
+  {
+    id: 'm15',
+    name: 'Final Approach',
+    map: 'metro',
+    time: 'dusk',
+    difficulty: 3,
+    type: 'Airline',
+    aircraft: 'civil',
+    briefing:
+      'Trade the fighter for an airliner. You are on a long final into Metro Bay International at dusk with the city lights coming on. Gear down (it also lowers the flaps), keep about 140 knots, follow the glide-slope gates and put her down gently on the main wheels, then brake to a full stop.',
+    tips: ['Gear down early: flaps come with it', 'Airliners respond slowly: small, early corrections', 'A 3-degree slope is about 50 m of height per kilometre'],
+    stars: [1300, 1900],
+    par: 260,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      const L = ab.length / 2;
+      // long final over the bay onto the reciprocal runway heading
+      const at = (d, h) => V(ab.x + ab.dirX * (d + L), ab.elevation + h, ab.z + ab.dirZ * (d + L));
+      ctx.startAir(at(15000, 820), (ab.heading + 180) % 360, 135, 0.45);
+      const glide = [];
+      for (const d of [10000, 7000, 4500, 2500]) glide.push(at(d, d * 0.052 + 18));
+      ctx.rings(glide, { radius: 75, optional: true });
+      ctx.traffic(4, { center: V(ab.x, 0, ab.z), radius: 14000, altMin: 3000, altMax: 9000 });
+      ctx.objectiveLand('Land on the runway and stop');
+    },
+  },
+  {
+    id: 'm16',
+    name: 'Night Hammer',
+    map: 'desert',
+    time: 'night',
+    difficulty: 5,
+    type: 'Night strike - HARD',
+    briefing:
+      'Under a new moon, take down the integrated air-defence system around Desert Metropolis: SAM batteries on the rooftops and in the desert, radar stations, flak and a fuel depot. Two Su-57s guard the city and more will scramble. This one is hard. Use the darkness, the terrain and the towers.',
+    tips: ['Kill the radars first: blind SAMs are easy prey', 'The targeting pod (top-right window) finds ground targets in the dark', 'Expect veteran pilots and very little room for error'],
+    stars: [3200, 4600],
+    par: 600,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      const city = ctx.map.def.city;
+      const d0 = city.districts[0], d2 = city.districts[2];
+      ctx.startAir(V(ab.x + 1500, 1100, ab.z), 270, 235);
+      ctx.cityTarget('sam', d0.x + 500, d0.z - 300, 'roof', { minH: 40, maxH: 170 });
+      ctx.cityTarget('sam', d0.x - 600, d0.z + 600, 'roof', { minH: 40, maxH: 170 });
+      ctx.cityTarget('radar', d0.x, d0.z, 'park', { radius: 1800 });
+      ctx.cityTarget('radar', d2.x, d2.z, 'park', { radius: 1500 });
+      for (let i = 0; i < 3; i++) ctx.cityTarget('aaa', d0.x + (i - 1) * 1100, d0.z + 800 * (i % 2 ? 1 : -1), 'park', { radius: 1200 });
+      ctx.samSite(7200, 4200);
+      ctx.samSite(7600, -5200);
+      ctx.groundAt('fuel', 8000, 600, 0);
+      const c = V(d0.x, 2600, d0.z);
+      ctx.enemyAir('su57', c.clone().add(V(-1500, 0, 1500)), 90, { skill: 0.85, patrolCenter: c, patrolRadius: 3500, label: 'FELON' });
+      ctx.enemyAir('su57', c.clone().add(V(1500, 200, -1500)), 270, { skill: 0.85, patrolCenter: c, patrolRadius: 3800, label: 'FELON' });
+      ctx.wave(() => {
+        ctx.radio('Two J-20s scrambling from the north, they are good!');
+        const p = V(-2000, 4000, 18000);
+        ctx.enemyAir('j20', p, 180, { skill: 0.9, engaged: true, label: 'DRAGON' });
+        ctx.enemyAir('j20', p.clone().add(V(500, 0, 300)), 180, { skill: 0.9, engaged: true, label: 'DRAGON' });
+      }, { afterKills: 4 });
+      ctx.objectiveDestroy('Destroy the air-defence system', (e) => e.kind === 'ground' && e.isTarget);
+      ctx.objectiveDestroy('Win air superiority', (e) => e.kind === 'air' && e.team === 'enemy', { minCount: 4 });
+    },
+  },
+  {
+    id: 'm17',
+    name: "Dragon's Teeth",
+    map: 'metro',
+    time: 'night',
+    difficulty: 5,
+    type: 'City defence - HARD',
+    briefing:
+      'The big one. Three waves of stealth fighters and bombers will hit Metro Bay tonight. If any bomber reaches downtown we lose the city. Civil flights are still airborne and the rules of engagement are strict: shoot down an airliner and you will be relieved of command.',
+    tips: ['Bombers first, then the fighters', 'Hostiles are red, airliners are white circles: check before you fire', 'Rearm by landing at the airport if you run dry'],
+    stars: [3500, 5000],
+    par: 600,
+    noCivilianLosses: true,
+    areaRadius: 34000,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      const city = ctx.map.def.city;
+      const down = V(city.districts[0].x, 0, city.districts[0].z);
+      ctx.startAir(V(ab.x - 6000, 2800, ab.z - 6000), 300, 245);
+      ctx.traffic(3, { center: V(city.x, 0, city.z), radius: 16000, altMin: 3500, altMax: 9500 });
+      const bombers = [];
+      const raid = (from, heading, n, skill) => {
+        const route = [V((from.x + down.x) / 2, 2400, (from.z + down.z) / 2), V(down.x, 1000, down.z)];
+        for (let i = 0; i < n; i++) {
+          bombers.push(ctx.enemyAir('su35', from.clone().add(V(i * 300 - 150, i * 80, i * 250)), heading, { role: 'bomber', skill, aggressive: false, route: route.map((r) => r.clone().add(V(i * 200, 0, 0))), loop: false, cruise: 0.72, missiles: 0, label: 'BOMBER', massScale: 1.3, healthScale: 1.3 }));
+        }
+      };
+      raid(V(-1000, 3400, -27000), 180, 2, 0.4);
+      ctx.enemyAir('j20', V(-1500, 4200, -25000), 180, { skill: 0.85, engaged: true, label: 'DRAGON' });
+      ctx.enemyAir('j20', V(-500, 4200, -25000), 180, { skill: 0.85, engaged: true, label: 'DRAGON' });
+      ctx.wave(() => {
+        ctx.radio('Second wave! Two Felons from the west!');
+        const p = V(-26000, 3600, 2000);
+        ctx.enemyAir('su57', p, 90, { skill: 0.9, engaged: true, label: 'FELON' });
+        ctx.enemyAir('su57', p.clone().add(V(300, 200, 400)), 90, { skill: 0.9, engaged: true, label: 'FELON' });
+      }, { afterKills: 3 });
+      ctx.wave(() => {
+        ctx.radio('Final wave from the east: bombers with an ace escort!');
+        raid(V(26000, 3200, 1000), 270, 2, 0.45);
+        const p = V(25000, 4200, 0);
+        for (let i = 0; i < 3; i++) ctx.enemyAir('su35', p.clone().add(V(i * 300, i * 120, i * 400 - 400)), 270, { skill: 0.95, engaged: true, label: 'ACE' });
+      }, { afterKills: 6 });
+      ctx.objectiveDestroy('Destroy every raider', (e) => e.kind === 'air' && e.team === 'enemy', { minCount: 11 });
+      ctx.failIf(() => bombers.some((b) => b.alive && !b.dying && Math.hypot(b.position.x - down.x, b.position.z - down.z) < 1800), 'A bomber reached downtown');
+    },
+  },
+  {
+    id: 'm18',
+    name: 'Ace Gauntlet',
+    map: 'alps',
+    time: 'dusk',
+    difficulty: 5,
+    type: 'Dogfight - HARD',
+    briefing:
+      'Three of the best pilots alive, one after another, over the glaciers at last light: an F-22, an Su-57 and finally a pair of Typhoons. You get only four missiles for the whole gauntlet. Make every shot count and win the knife fights with the gun.',
+    tips: ['Only 4 missiles: save them for clean rear-aspect shots', 'Thrust-vectoring jets can point their nose at you at low speed: keep your energy', 'Use the mountains to break locks'],
+    stars: [2600, 3800],
+    par: 480,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      ctx.startAir(V(ab.x, ab.elevation + 3400, ab.z), 0, 250);
+      ctx.loadout({ missiles: 4 });
+      ctx.enemyAir('f22', V(ab.x, ab.elevation + 3500, ab.z - 13000), 180, { skill: 1.0, label: 'RAPTOR ACE' });
+      ctx.wave(() => {
+        ctx.radio('Raptor down! Next contender: Su-57, north-east.');
+        ctx.enemyAir('su57', V(ab.x + 9000, ab.elevation + 3800, ab.z - 9000), 225, { skill: 1.0, label: 'FELON ACE', engaged: true });
+      });
+      ctx.wave(() => {
+        ctx.radio('Final round: two Typhoons from the south!');
+        ctx.enemyAir('typhoon', V(ab.x - 500, ab.elevation + 3600, ab.z + 12000), 0, { skill: 0.97, label: 'TYPHOON ACE', engaged: true });
+        ctx.enemyAir('typhoon', V(ab.x + 500, ab.elevation + 3700, ab.z + 12400), 0, { skill: 0.95, label: 'TYPHOON ACE', engaged: true });
+      });
+      ctx.objectiveDestroy('Defeat every ace', (e) => e.kind === 'air' && e.team === 'enemy', { minCount: 4 });
+    },
+  },
+  {
+    id: 'm19',
+    name: 'Operation Atlas',
+    map: 'desert',
+    time: 'sunset',
+    difficulty: 4,
+    type: 'Special operation: heavy airlift',
+    aircraft: 'cargo',
+    forceJet: 'an124',
+    requires: ['m12', 'm15', 'm17'],
+    requiresText: 'Complete Heavy Escort, Final Approach and Dragon\'s Teeth',
+    briefing:
+      'Special operation for veteran crews only. Fly the Antonov An-124 Ruslan at 395 tonnes, with 150 tonnes of relief cargo in the hold. The take-off run uses most of the 3 km runway: full thrust, gear down for flaps, rotate at about 150 knots and wait for her to fly. Then follow the delivery corridor around the coast and bring her back to land and stop.',
+    tips: ['Full thrust and patience: lift-off comes at roughly 170 knots after 2.4 km', 'Gear up after take-off to clean up, gear down again for the approach', 'Bank gently: 400 tonnes do not turn quickly'],
+    stars: [2000, 2800],
+    par: 720,
+    areaRadius: 30000,
+    setup(ctx) {
+      const ab = ctx.map.airbase;
+      const L = ab.length / 2;
+      ctx.startRunway();
+      const at = (d, h) => V(ab.x - ab.dirX * (d + L), ab.elevation + h, ab.z - ab.dirZ * (d + L));
+      const ahead = (d, h) => V(ab.x + ab.dirX * (L + d), ab.elevation + h, ab.z + ab.dirZ * (L + d));
+      const pts = [
+        ahead(9000, 650), V(15500, 1300, 6500), V(8000, 1500, 10500), V(1000, 1600, 8500),
+        V(-5800, 1300, 2600), V(-6200, 1400, -5000), V(-5800, 1100, -12500),
+        at(12000, 12000 * 0.052 + 20), at(7000, 7000 * 0.052 + 20), at(3500, 3500 * 0.052 + 20),
+      ];
+      ctx.rings(pts, { radius: 130 });
+      ctx.objectiveLand('Land back at the airport and stop');
+      ctx.traffic(3, { center: V(ab.x, 0, ab.z), radius: 18000, altMin: 4000, altMax: 10000 });
+    },
+  },
 ];
 
 export const RIVER = { highlandRiverZ };

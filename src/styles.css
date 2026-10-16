@@ -253,3 +253,21 @@ input[type='range'] { accent-color: var(--accent); width: 160px; }
   .title-wrap { gap: 20px; }
   .mission-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 }
+
+/* ---------- aircraft tabs, special operations, hard missions ---------- */
+.jet-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.jet-tabs button {
+  background: rgba(255,255,255,0.04); color: var(--muted); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px;
+  padding: 6px 14px; font-size: 15px; font-weight: 600; letter-spacing: 0.06em;
+}
+.jet-tabs button small { color: var(--muted); margin-left: 4px; }
+.jet-tabs button.on { color: #1a0f05; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-color: transparent; }
+.jet-tabs button.on small { color: #3a2410; }
+.jet-chip.special { border-color: rgba(120,190,255,0.45); }
+.jet-chip.special .jc-name::after { content: ' ★'; color: #8fd0ff; }
+.mission-card.special { border-color: rgba(120,190,255,0.5); }
+.badge { position: absolute; top: 8px; left: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; padding: 2px 7px; border-radius: 4px; }
+.badge.hard { background: rgba(255,70,50,0.85); color: #fff; }
+.badge.sp { background: rgba(80,160,255,0.85); color: #fff; left: auto; right: 44px; }
+.mc-req { padding: 6px 12px 0; font-size: 12px; color: #8fd0ff; letter-spacing: 0.04em; }
+.unlock-note { color: #8fd0ff !important; font-size: 15px !important; }

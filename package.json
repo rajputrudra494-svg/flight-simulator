@@ -2,7 +2,7 @@
   "name": "strike-horizon",
   "private": true,
   "version": "1.0.0",
-  "description": "Strike Horizon - browser combat flight simulator with procedural worlds, six fighter jets, a ten-mission campaign and free flight.",
+  "description": "Strike Horizon - browser combat flight simulator with procedural worlds and cities, 17 military jets, 7 airliners including the An-124, a 19-mission campaign and free flight.",
   "type": "module",
   "scripts": {
     "dev": "vite",

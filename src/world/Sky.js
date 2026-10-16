@@ -59,6 +59,9 @@ const fragmentShader = /* glsl */ `
   uniform float uEnvMode;
   uniform vec3 uGroundColor;
   uniform sampler2D uNoise;
+  uniform float uNight;
+  uniform vec3 uMoonDir;
+  uniform vec3 uCityGlow;
 
   ${atmoFunctionsGLSL}
 
@@ -115,6 +118,22 @@ const fragmentShader = /* glsl */ `
     float halo = pow( max( cosTheta, 0.0 ), 800.0 ) * 0.6 + pow( max( cosTheta, 0.0 ), 60.0 ) * 0.08;
     col += ( disc * uSunDiscIntensity + halo ) * Fex * vec3( 1.0, 0.95, 0.85 );
 
+    if ( uNight > 0.0 ) {
+      float up = max( direction.y, 0.0 );
+      vec3 night = mix( vec3( 0.02, 0.03, 0.055 ), vec3( 0.003, 0.005, 0.014 ), pow( up, 0.45 ) );
+      vec3 sd = direction * 260.0;
+      vec3 cell = floor( sd );
+      float h = fract( sin( dot( cell, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 );
+      vec3 fp = fract( sd ) - 0.5;
+      float star = step( 0.982, h ) * smoothstep( 0.14, 0.0, length( fp ) ) * smoothstep( 0.0, 0.2, direction.y );
+      night += vec3( 0.85, 0.92, 1.0 ) * star * ( 0.3 + 2.5 * fract( h * 91.3 ) ) * ( 1.0 - uEnvMode );
+      float cm = dot( direction, uMoonDir );
+      night += vec3( 1.0, 0.97, 0.9 ) * smoothstep( 0.99955, 0.99968, cm ) * 2.5;
+      night += vec3( 0.35, 0.45, 0.65 ) * ( pow( max( cm, 0.0 ), 80.0 ) * 0.2 + pow( max( cm, 0.0 ), 8.0 ) * 0.02 );
+      night += uCityGlow * pow( 1.0 - up, 7.0 );
+      col = mix( col, night, uNight );
+    }
+
     // Blend into the fog colour at and below the horizon
     vec3 fogCol = atmoFogColor( direction );
     float h = smoothstep( -0.02, 0.09, direction.y );
@@ -148,6 +167,9 @@ export class SkyDome extends THREE.Mesh {
         uEnvMode: { value: 0 },
         uGroundColor: { value: new THREE.Color(0.2, 0.2, 0.18) },
         uNoise: { value: getNoiseTexture() },
+        uNight: { value: 0 },
+        uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+        uCityGlow: { value: new THREE.Color(0, 0, 0) },
         ...atmoUniforms(),
       },
       vertexShader,

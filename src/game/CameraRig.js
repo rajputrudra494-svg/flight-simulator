@@ -10,7 +10,7 @@ const _m = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
 
 export const CAMERA_MODES = ['chase', 'cockpit', 'padlock', 'flyby', 'orbit'];
-const LABELS = { chase: 'CHASE VIEW', cockpit: 'COCKPIT VIEW', padlock: 'PADLOCK VIEW', flyby: 'CINEMATIC VIEW', orbit: 'ORBIT VIEW' };
+const LABELS = { chase: 'CHASE VIEW', cockpit: 'COCKPIT VIEW', padlock: 'PADLOCK VIEW', flyby: 'CINEMATIC VIEW', orbit: 'ORBIT VIEW', weapon: 'WEAPON CAM' };
 
 export class CameraRig {
   constructor(camera) {
@@ -32,6 +32,20 @@ export class CameraRig {
     this.fov = 65;
     this.time = 0;
     this.initialized = false;
+    this.weapon = null;
+    this.weaponHold = 0;
+    this.prevMode = 'chase';
+    this.weaponPos = new THREE.Vector3();
+  }
+
+  // ride along behind a missile until it detonates, then return
+  followWeapon(m) {
+    if (!m) return;
+    if (this.mode !== 'weapon') this.prevMode = this.mode;
+    this.weapon = m;
+    this.weaponHold = 1.8;
+    this.mode = 'weapon';
+    if (this.target) this.target.model.setCockpitView(false);
   }
 
   setTarget(ac) {
@@ -80,6 +94,26 @@ export class CameraRig {
     }
     const speed = ac.fm.airspeed;
     let near = 0.8;
+    if (this.mode === 'weapon') {
+      const m = this.weapon;
+      if (m && m.alive) {
+        _v.copy(m.vel).normalize();
+        this.weaponPos.copy(m.pos);
+        cam.position.copy(m.pos).addScaledVector(_v, -16).add(_w.set(0, 2.5, 0));
+        const look = m.target && m.target.position ? m.target.position : _w.copy(m.pos).addScaledVector(_v, 80);
+        cam.up.set(0, 1, 0);
+        cam.lookAt(m.target && m.pos.distanceTo(look) < 3000 ? look : _w.copy(m.pos).addScaledVector(_v, 80));
+      } else {
+        this.weaponHold -= dt;
+        cam.up.set(0, 1, 0);
+        cam.lookAt(this.weaponPos);
+        if (this.weaponHold <= 0) {
+          this.setMode(this.prevMode || 'chase');
+          this.weapon = null;
+        }
+      }
+      near = 0.5;
+    }
     switch (this.mode) {
       case 'cockpit': {
         near = 0.08;
@@ -160,7 +194,7 @@ export class CameraRig {
         break;
     }
     // keep above the ground
-    const gh = map.surfaceAt(cam.position.x, cam.position.z) + 1.2;
+    const gh = map.surfaceAt(cam.position.x, cam.position.z, cam.position.y) + 1.2;
     if (cam.position.y < gh) cam.position.y = gh;
 
     // shake: gunfire, afterburner, high G, buffet, explosions

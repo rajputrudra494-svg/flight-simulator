@@ -38,6 +38,30 @@ export class AIPilot {
     this.jink = new THREE.Vector3();
     this.escortOf = opts.escortOf || null;
     this.engaged = opts.engaged ?? false;
+    this.turnTimer = 3 + Math.random() * 6;
+    this.wander = new THREE.Vector3();
+    if (this.role === 'civil') this.aggressive = false;
+  }
+
+  // Airliner autopilot: bank-limited turns towards a point, vertical-speed
+  // hold to an altitude and an auto-throttle on airspeed.
+  civilFly(point, alt, speed = 225) {
+    const ac = this.ac;
+    const c = ac.controls;
+    const fm = ac.fm;
+    const att = fm.attitude(this._att || (this._att = {}));
+    const want = (THREE.MathUtils.radToDeg(Math.atan2(point.x - ac.position.x, -(point.z - ac.position.z))) + 360) % 360;
+    let err = want - att.heading;
+    err = ((err + 540) % 360) - 180;
+    const bankTarget = THREE.MathUtils.clamp(err * 1.1, -25, 25);
+    // attitude roll is negative when banked right
+    const rollErr = -bankTarget - att.roll;
+    c.roll = THREE.MathUtils.clamp(-rollErr * 0.045, -0.6, 0.6);
+    const vsTarget = THREE.MathUtils.clamp((alt - ac.position.y) * 0.06, -10, 10);
+    const bankComp = (1 / Math.max(0.6, Math.cos(THREE.MathUtils.degToRad(att.roll))) - 1) * 0.9;
+    c.pitch = THREE.MathUtils.clamp((vsTarget - ac.velocity.y) * 0.05 + bankComp - att.pitch * 0.01, -0.5, 0.6);
+    c.yaw = 0;
+    c.throttle = THREE.MathUtils.clamp(0.55 + (speed - fm.airspeed) * 0.03, 0.25, 0.95);
   }
 
   // Convert a desired world-space direction into stick commands.
@@ -81,10 +105,10 @@ export class AIPilot {
     const ac = this.ac;
     let best = null, bestScore = Infinity;
     for (const o of battle.aircraft) {
-      if (!o.alive || o.dying || o.team === ac.team) continue;
+      if (!o.alive || o.dying || o.team === ac.team || o.team === 'civil') continue;
       const d = o.position.distanceTo(ac.position);
       if (d > this.detectRange && !this.engaged) continue;
-      const score = d * (o.isPlayer ? 0.8 : 1);
+      const score = d * (o.isPlayer ? 0.8 : 1) * (o.priority || 1);
       if (score < bestScore) { bestScore = score; best = o; }
     }
     return best;
@@ -104,7 +128,8 @@ export class AIPilot {
     const speed = fm.airspeed;
 
     // --- 1. Terrain avoidance
-    const minClear = 160 + speed * 0.9;
+    // airliners on approach fly much closer to the ground than fighters
+    const minClear = this.role === 'civil' ? 50 + speed * 0.35 : 160 + speed * 0.9;
     let danger = 0;
     for (const t of [1, 2.5, 4.5, 7]) {
       _p.copy(ac.position).addScaledVector(ac.velocity, t);
@@ -113,13 +138,31 @@ export class AIPilot {
       if (clear < minClear * (t / 7 + 0.4)) danger = Math.max(danger, 1 - clear / (minClear * (t / 7 + 0.4)));
     }
     const agl = ac.position.y - map.surfaceAt(ac.position.x, ac.position.z);
-    if (danger > 0 || agl < 120) {
+    if (danger > 0 || agl < (this.role === 'civil' ? 45 : 120)) {
       _dir.copy(ac.velocity).setY(0).normalize();
       _dir.y = 0.8 + danger;
       this.steer(_dir, 1, false);
       c.pitch = Math.max(c.pitch, 0.6);
       c.throttle = 1;
       this.mode = 'terrain';
+      return;
+    }
+
+    // --- civil traffic: follow the route or circuit, never fight
+    if (this.role === 'civil') {
+      this.mode = 'cruise';
+      if (this.route && this.route.length) {
+        const wp = this.route[Math.min(this.routeIndex, this.route.length - 1)];
+        this.civilFly(wp, wp.y, wp.speed || 225);
+        if (Math.hypot(wp.x - ac.position.x, wp.z - ac.position.z) < 1500 && this.routeIndex < this.route.length - 1) this.routeIndex++;
+        else if (this.routeIndex >= this.route.length - 1 && this.loop && Math.hypot(wp.x - ac.position.x, wp.z - ac.position.z) < 1500) this.routeIndex = 0;
+        return;
+      }
+      _t.subVectors(ac.position, this.patrolCenter).setY(0);
+      const r = _t.length() || 1;
+      const tangent = new THREE.Vector3(-_t.z, 0, _t.x).divideScalar(r);
+      _p.copy(this.patrolCenter).addScaledVector(_t.divideScalar(r), this.patrolRadius).addScaledVector(tangent, 4000);
+      this.civilFly(_p, this.patrolAlt, 225);
       return;
     }
 
@@ -237,11 +280,20 @@ export class AIPilot {
       }
       return;
     }
-    // circle the patrol centre
+    // circle the patrol centre; drones and patrols keep changing direction
+    // and height so they are not sitting ducks
+    this.turnTimer -= dt;
+    if (this.turnTimer <= 0) {
+      this.turnTimer = (this.role === 'drone' ? 5 : 9) + Math.random() * 8;
+      const k = this.role === 'drone' ? 1600 : 900;
+      this.wander.set((Math.random() - 0.5) * 2 * k, (Math.random() - 0.5) * (this.role === 'drone' ? 500 : 250), (Math.random() - 0.5) * 2 * k);
+      if (Math.random() < 0.3) this.patrolDir = -(this.patrolDir || 1);
+    }
     _t.subVectors(ac.position, this.patrolCenter).setY(0);
     const r = _t.length() || 1;
-    const tangent = new THREE.Vector3(-_t.z, 0, _t.x).divideScalar(r);
-    _p.copy(this.patrolCenter).addScaledVector(_t.divideScalar(r), this.patrolRadius).addScaledVector(tangent, 2500);
-    this.levelToward(_p, this.patrolAlt);
+    const dirSign = this.patrolDir || 1;
+    const tangent = new THREE.Vector3(-_t.z, 0, _t.x).divideScalar(r).multiplyScalar(dirSign);
+    _p.copy(this.patrolCenter).addScaledVector(_t.divideScalar(r), this.patrolRadius).addScaledVector(tangent, 2500).add(this.wander);
+    this.levelToward(_p, this.patrolAlt + this.wander.y);
   }
 }

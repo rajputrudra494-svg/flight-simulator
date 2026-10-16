@@ -32,6 +32,10 @@ export class Aircraft {
     this.dying = false;
     this.dyingTime = 0;
     this.isTarget = opts.isTarget ?? this.team === 'enemy';
+    this.civil = this.team === 'civil' || !!spec.civil;
+    // sonic boom bookkeeping (hysteresis so the boom fires once per crossing)
+    this.supersonic = false;
+    this.booms = 0;
     this.ai = null;
     this.controls = { pitch: 0, roll: 0, yaw: 0, throttle: 0.75, airbrake: false, gear: !!opts.gear, brakes: false, gun: false, missile: false, flare: false };
     const w = spec.weapons;
@@ -80,7 +84,7 @@ export class Aircraft {
       sys: trailSystem,
       tipL: trailSystem.create({ width: 0.35, life: 1.6, color: [1.6, 1.6, 1.7], maxPoints: 50, minDist: 6, growth: 2 }),
       tipR: trailSystem.create({ width: 0.35, life: 1.6, color: [1.6, 1.6, 1.7], maxPoints: 50, minDist: 6, growth: 2 }),
-      con: this.model.flames.map(() => trailSystem.create({ width: 1.6, life: 9, color: [1.5, 1.5, 1.55], maxPoints: 90, minDist: 25, growth: 4 })),
+      con: this.model.exhausts.map(() => trailSystem.create({ width: this.model.airliner ? 2.4 : 1.6, life: this.model.airliner ? 14 : 9, color: [1.5, 1.5, 1.55], maxPoints: 90, minDist: 25, growth: 4 })),
       smoke: trailSystem.create({ width: 2.4, life: 7, color: [0.12, 0.12, 0.12], maxPoints: 90, minDist: 10, growth: 5 }),
     };
   }
@@ -155,7 +159,17 @@ export class Aircraft {
     const fm = this.fm;
     this.model.animate(dt, {
       pitch: c.pitch, roll: c.roll, yaw: c.yaw, throttle: fm.throttle, ab: fm.afterburner, gear: c.gear,
+      mach: fm.mach, gLoad: fm.gLoad, alpha: fm.alpha, speed: fm.airspeed, altitude: this.position.y,
+      lightGlow: battle.world ? battle.world.nightFactor : 0,
     });
+    // breaking the sound barrier
+    if (!this.supersonic && fm.mach >= 1.0 && !this.dying) {
+      this.supersonic = true;
+      this.booms++;
+      battle.onSonicBoom?.(this);
+    } else if (this.supersonic && fm.mach < 0.97) {
+      this.supersonic = false;
+    }
     this.heat = 0.4 + fm.throttle * 0.6 + fm.afterburner * 1.5;
 
     // Weapons
@@ -190,20 +204,20 @@ export class Aircraft {
       this.trails.tipR.add(this.worldPoint(this.model.wingtips[0], _v), vortex * 0.55, t);
       const contrail = Math.max(0, Math.min(1, (this.position.y - 7600) / 900));
       for (let i = 0; i < this.trails.con.length; i++) {
-        this.worldPoint(this.model.flames[i].exit, _v);
+        this.worldPoint(this.model.exhausts[i], _v);
         _v.addScaledVector(this.forward, -6);
         this.trails.con[i].add(_v, contrail * 0.75, t);
       }
       const dmg = 1 - this.health / this.maxHealth;
       const smoke = this.dying ? 0.9 : dmg > 0.5 ? (dmg - 0.5) * 1.4 : 0;
-      this.worldPoint(this.model.flames[0].exit, _v);
+      this.worldPoint(this.model.exhausts[0], _v);
       this.trails.smoke.add(_v, smoke, t);
     }
     if ((this.dying || this.health < this.maxHealth * 0.3) && battle.effects) {
       this.smokeTimer -= dt;
       if (this.smokeTimer <= 0) {
         this.smokeTimer = 0.05;
-        battle.effects.burning(this.worldPoint(this.model.flames[0].exit, _v), this.velocity, this.dying ? 1.4 : 0.6);
+        battle.effects.burning(this.worldPoint(this.model.exhausts[0], _v), this.velocity, this.dying ? 1.4 : 0.6);
       }
     }
   }

@@ -21,7 +21,7 @@ export class Input {
       pitch: 0, roll: 0, yaw: 0, throttleRate: 0, throttleAbs: null,
       gun: false, missile: false, flare: false, target: false, camera: false, gear: false,
       airbrake: false, brakes: false, pause: false, lookX: 0, lookY: 0, look: false, view: false, help: false,
-      cycleWeapon: false,
+      cycleWeapon: false, lockView: false, weaponCam: false,
     };
     this.kb = { pitch: 0, roll: 0, yaw: 0 };
     this.gamepadIndex = null;
@@ -129,6 +129,9 @@ export class Input {
     const help = hit('KeyH', 'F1');
     const view = hit('KeyL');
     const cycleWeapon = hit('KeyN');
+    let lockView = hit('KeyY');
+    const weaponCam = hit('KeyK');
+    if (this.mouseClick.has(1)) lockView = true;
     let lookX = 0, lookY = 0, look = false;
     if (any('Numpad4')) { lookX -= 1; look = true; }
     if (any('Numpad6')) { lookX += 1; look = true; }
@@ -218,6 +221,8 @@ export class Input {
     s.help = help;
     s.view = view;
     s.cycleWeapon = cycleWeapon || tb.has('weapon');
+    s.lockView = lockView || tb.has('lockview');
+    s.weaponCam = weaponCam;
     s.lookX = look ? lookX : s.lookX;
     s.lookY = look ? lookY : s.lookY;
     s.look = look;
@@ -225,7 +230,7 @@ export class Input {
 
     this.pressed.clear();
     this.mouseClick.clear();
-    tb.delete('missile'); tb.delete('flare'); tb.delete('target'); tb.delete('camera'); tb.delete('gear'); tb.delete('pause'); tb.delete('weapon');
+    tb.delete('missile'); tb.delete('flare'); tb.delete('target'); tb.delete('camera'); tb.delete('gear'); tb.delete('pause'); tb.delete('weapon'); tb.delete('lockview');
     return s;
   }
 }

@@ -30,10 +30,21 @@ export class Mission {
     this.ceilingAlt = null;
     this.ceilingTimer = 0;
     this.center = new THREE.Vector3();
-    this.areaRadius = options.free ? Infinity : 24000;
+    this.areaRadius = options.free ? Infinity : def.areaRadius || 24000;
     this.prevPos = new THREE.Vector3();
     this.landed = false;
+    this.wasAirborne = false;
+    this.airborneTime = 0;
     this.respawnTimer = 0;
+    this.booms = 0;
+    this.civilLosses = 0;
+    this.loadout = null;
+    if (def.forceJet) this.options.jetId = def.forceJet;
+  }
+
+  onSonicBoom() {
+    this.booms++;
+    if (this.booms === 1 || this.free) this.message(`SONIC BOOM  x${this.booms}`, 'ring');
   }
 
   setup(battle) {
@@ -47,6 +58,7 @@ export class Mission {
       battle, map, rand,
       startAir(pos, heading, speed, throttle = 0.8) {
         self.start = { pos: pos.clone(), heading, speed, throttle, runway: false };
+        self.wasAirborne = true;
         self._spawnPlayer();
       },
       startRunway() {
@@ -58,6 +70,7 @@ export class Mission {
       },
       rings(points, opts = {}) {
         self.rings = new Rings(battle.scene, points, opts);
+        self.rings.minMach = opts.minMach || 0;
         if (!opts.optional) self.objectives.push({ type: 'rings', text: 'Fly through the checkpoints', required: true });
       },
       enemyAir(jetId, pos, heading, opts = {}) {
@@ -121,6 +134,43 @@ export class Mission {
       failIf(fn, reason) {
         self.failChecks.push({ fn, reason });
       },
+      // background airliner traffic
+      traffic(count, opts = {}) {
+        return battle.spawnTraffic(count, { rand, ...opts });
+      },
+      // friendly aircraft (escorted airliner, wingmen)
+      friendlyAir(jetId, pos, heading, opts = {}) {
+        const ac = battle.spawnAircraft(jetId, {
+          team: 'player', isTarget: false, position: pos, heading, speed: opts.speed ?? 220,
+          ai: { skill: opts.skill ?? 0.6, role: opts.role || 'fighter', route: opts.route, loop: opts.loop ?? false, patrolCenter: opts.patrolCenter, patrolRadius: opts.patrolRadius, patrolAlt: opts.patrolAlt ?? pos.y, cruise: opts.cruise },
+          callsign: opts.label,
+        });
+        ac.label = opts.label || 'FRIENDLY';
+        if (opts.priority) ac.priority = opts.priority;
+        self.entities.push(ac);
+        return ac;
+      },
+      // air-defence sites inside a city: on rooftops or in parks and squares
+      cityTarget(type, x, z, where = 'park', opts = {}) {
+        const city = map.city;
+        let spot = null;
+        if (city) spot = where === 'roof' ? city.roofSpot(x, z, rand, opts.minH ?? 30, opts.maxH ?? 140) : city.openSpot(x, z, rand, opts.radius ?? 2500);
+        if (!spot) return ctx.groundAt(type, x, z, rand() * 6.28, opts);
+        const u = battle.spawnGround(type, spot.x, spot.z, rand() * Math.PI * 2, { difficulty: self.game.settings.difficulty ?? 1, elevation: where === 'roof' ? spot.y : null, ...opts });
+        self.entities.push(u);
+        return u;
+      },
+      objectiveEscort(text, ac, arrived) {
+        self.objectives.push({ type: 'escort', text, ac, arrived, required: true, reached: false });
+        self.failChecks.push({ fn: () => !ac.alive || ac.dying, reason: `${ac.label || 'The escorted aircraft'} was shot down` });
+      },
+      objectiveBoom(text, count = 1) {
+        self.objectives.push({ type: 'boom', text, count, required: true });
+      },
+      loadout(l) {
+        self.loadout = l;
+        self._applyLoadout();
+      },
       ceiling(alt, msg) {
         self.ceilingAlt = alt;
         self.ceilingMsg = msg;
@@ -151,7 +201,16 @@ export class Mission {
     ac.controls.throttle = s.throttle;
     ac.fm.throttle = s.throttle;
     this.game.onPlayerSpawned(ac);
+    this._applyLoadout();
     return ac;
+  }
+
+  _applyLoadout() {
+    const p = this.battle && this.battle.player;
+    if (!p || !this.loadout) return;
+    if (this.loadout.missiles !== undefined) p.missiles = Math.min(p.missiles, this.loadout.missiles);
+    if (this.loadout.gunAmmo !== undefined) p.gunAmmo = Math.min(p.gunAmmo, this.loadout.gunAmmo);
+    if (this.loadout.flares !== undefined) p.flares = Math.min(p.flares, this.loadout.flares);
   }
 
   _setupFree(ctx) {
@@ -176,6 +235,8 @@ export class Mission {
       ctx.convoy(ab.x + 6000, ab.z + 5000, 30, 5);
     }
     if (o.rings) ctx.rings(this._freeRings(), { radius: 55 });
+    const traffic = o.traffic === 'heavy' ? 10 : o.traffic === 'light' ? 4 : 0;
+    if (traffic) ctx.traffic(traffic, { center: new THREE.Vector3(map.def.city ? map.def.city.x : ab.x, 0, map.def.city ? map.def.city.z : ab.z), radius: 16000 });
     if (n || o.ground) ctx.objectiveDestroy('Destroy all hostiles', (e) => e.isTarget);
   }
 
@@ -208,6 +269,15 @@ export class Mission {
 
   onKill(entity, source) {
     if (!source || !source.owner || !source.owner.isPlayer) return;
+    if (entity.team === 'civil' || (entity.team === 'player' && entity !== this.battle.player)) {
+      // rules of engagement: shooting down civilians or friendlies costs dearly
+      this.civilLosses++;
+      this.score -= 1500;
+      this.message(`${entity.team === 'civil' ? 'CIVILIAN AIRLINER' : 'FRIENDLY'} DOWN  -1500`, 'fail');
+      this.game.audio.speak('Cease fire! Friendly down!', 'roe', 4);
+      if (this.def.noCivilianLosses) this._fail('Rules of engagement violated');
+      return;
+    }
     if (entity.kind === 'air') {
       this.kills.air++;
       const pts = entity.role === 'bomber' ? 250 : entity.ai && entity.ai.skill > 0.8 ? 600 : 200;
@@ -236,7 +306,15 @@ export class Mission {
       return { done, progress: `${dead}/${Math.max(list.length, o.minCount)}` };
     }
     if (o.type === 'land') {
-      return { done: this.landed, progress: this.landed ? 'DONE' : '' };
+      return { done: this.landed, progress: this.landed ? 'DONE' : this.wasAirborne ? '' : 'TAKE OFF FIRST' };
+    }
+    if (o.type === 'escort') {
+      if (!o.reached && o.ac.alive && !o.ac.dying && o.arrived(o.ac)) o.reached = true;
+      const d = o.ac.alive ? Math.round(o.ac.position.distanceTo(this.battle.player ? this.battle.player.position : o.ac.position) / 100) / 10 : 0;
+      return { done: o.reached, progress: o.reached ? 'ARRIVED' : o.ac.alive ? `${Math.round((o.ac.health / o.ac.maxHealth) * 100)}% ${d} km` : 'LOST' };
+    }
+    if (o.type === 'boom') {
+      return { done: this.booms >= o.count, progress: `${Math.min(this.booms, o.count)}/${o.count}` };
     }
     return { done: false, progress: '' };
   }
@@ -260,9 +338,21 @@ export class Mission {
       }
       return;
     }
+    // airborne at least once (a landing only counts after a real flight)
+    if (p && p.alive && !p.fm.onGround && p.position.y - b.map.surfaceAt(p.position.x, p.position.z) > 40) {
+      this.airborneTime += dt;
+      if (this.airborneTime > 4) this.wasAirborne = true;
+    }
     // Rings
     if (this.rings && p && p.alive) {
-      const r = this.rings.update(dt, this.prevPos, p.position);
+      let r = this.rings.update(dt, this.prevPos, p.position);
+      if (r === 'pass' && this.rings.minMach && p.fm.mach < this.rings.minMach) {
+        // supersonic course: subsonic passes do not count
+        this.rings.passed--;
+        this.rings.missed++;
+        this.message(`TOO SLOW  M${p.fm.mach.toFixed(2)}`, 'warn');
+        r = null;
+      }
       if (r === 'pass') {
         this.ringScore += 100;
         this.score += 100;
@@ -294,7 +384,7 @@ export class Mission {
 
     // Landing objective
     if (p && p.alive && p.fm.onGround && b.map.isOnRunway(p.position.x, p.position.z) && p.fm.airspeed < 3) {
-      if (!this.landed && this.objectives.some((o) => o.type === 'land')) {
+      if (!this.landed && this.wasAirborne && this.objectives.some((o) => o.type === 'land')) {
         this.landed = true;
         const td = p.fm.lastTouchdown;
         const bonus = td ? Math.round(Math.max(0, 5 + td.vs) * 120 + (td.runway ? 300 : 0)) : 0;

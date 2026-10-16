@@ -1,5 +1,6 @@
 // Browser smoke test: boots the built game in headless Chromium (SwiftShader
-// WebGL), walks through the menus, flies several missions with scripted
+// WebGL), walks through the menus, flies missions (including the city maps,
+// an airliner and the An-124) with scripted
 // inputs and reports runtime errors plus flight / AI telemetry.
 //   usage: node scripts/smoke-test.mjs [baseUrl]
 import { chromium } from 'playwright';
@@ -106,6 +107,11 @@ const runs = [
   { key: '6', jet: 'f16', label: 'm7-intercept' },
   { key: '8', jet: 'fa18', label: 'm9-landing' },
   { key: 'free', jet: 'f16', label: 'free-runway', free: { map: 'highlands', time: 'sunset', enemies: 'few', ground: true, rings: false, start: 'runway' } },
+  { key: '10', jet: 'f15', label: 'm11-city-defence' },
+  { key: '12', jet: 'a10', label: 'm13-urban-strike' },
+  { key: '14', jet: 'a320', label: 'm15-airliner' },
+  { key: '18', jet: 'an124', label: 'm19-an124-airlift' },
+  { key: 'free', jet: 'concorde', label: 'free-night-metro', free: { map: 'metro', time: 'night', enemies: 'few', ground: false, rings: false, start: 'air', traffic: 'light' } },
 ];
 
 for (const run of runs) {
@@ -128,7 +134,7 @@ for (const run of runs) {
     ['down', 'KeyS'], ['wait', 900], ['up', 'KeyS'],
     ['down', 'KeyD'], ['wait', 500], ['up', 'KeyD'],
     ['press', 'KeyT'], ['down', 'Space'], ['wait', 1500], ['up', 'Space'],
-    ['press', 'KeyX'], ['press', 'KeyV'], ['press', 'KeyC'], ['wait', 1500], ['press', 'KeyC'], ['press', 'KeyC'],
+    ['press', 'KeyX'], ['press', 'KeyV'], ['press', 'KeyY'], ['press', 'KeyC'], ['wait', 1500], ['press', 'KeyC'], ['press', 'KeyC'],
     ['wait', 1500], ['press', 'KeyC'], ['press', 'KeyC'],
   ];
   if (run.free && run.free.start === 'runway') {

@@ -99,6 +99,54 @@ export class Effects {
     if (Math.random() < 0.3) p.fire.emit({ x: pos.x + (Math.random() - 0.5) * 4, y: pos.y + 1, z: pos.z + (Math.random() - 0.5) * 4, vx: 0, vy: 4, vz: 0, life: 0.6, size0: 4, size1: 6, color0: [5, 2, 0.5, 1], color1: [1, 0.2, 0, 0], cell: 1, drag: 1 });
   }
 
+  // Breaking the sound barrier: a condensation collar that is shed behind the
+  // airframe plus an expanding shock ring. The boom itself is heard wherever
+  // the Mach cone sweeps over the listener (see Battle.update).
+  sonicBoom(ac) {
+    const p = this.particles;
+    const pos = ac.position, vel = ac.velocity;
+    const speed = vel.length() || 1;
+    const fwd = _v.copy(vel).divideScalar(speed);
+    const len = ac.model.length;
+    const r0 = Math.max(ac.model.maxWidth * 1.6, ac.model.span * 0.32);
+    // two perpendicular axes around the flight direction
+    const a = new THREE.Vector3(0, 1, 0).cross(fwd);
+    if (a.lengthSq() < 1e-4) a.set(1, 0, 0);
+    a.normalize();
+    const b = new THREE.Vector3().crossVectors(fwd, a);
+    const n = this.lowQuality ? 26 : 56;
+    for (let i = 0; i < n; i++) {
+      const th = (i / n) * Math.PI * 2;
+      const dx = a.x * Math.cos(th) + b.x * Math.sin(th);
+      const dy = a.y * Math.cos(th) + b.y * Math.sin(th);
+      const dz = a.z * Math.cos(th) + b.z * Math.sin(th);
+      const back = (Math.random() * 0.5) * len;
+      p.smoke.emit({
+        x: pos.x + dx * r0 - fwd.x * back, y: pos.y + dy * r0 - fwd.y * back, z: pos.z + dz * r0 - fwd.z * back,
+        vx: vel.x * 0.92 + dx * 26, vy: vel.y * 0.92 + dy * 26, vz: vel.z * 0.92 + dz * 26,
+        life: 0.9 + Math.random() * 0.7, size0: len * 0.18, size1: len * 0.75,
+        color0: [1.25, 1.27, 1.32, 0.75], color1: [1.3, 1.3, 1.35, 0], cell: 0, drag: 3.5,
+      });
+    }
+    // shock ring and flash travelling with the aircraft
+    p.fire.emit({ x: pos.x, y: pos.y, z: pos.z, vx: vel.x * 0.85, vy: vel.y * 0.85, vz: vel.z * 0.85, life: 0.55, size0: len * 0.6, size1: len * 7, color0: [1.4, 1.4, 1.5, 0.6], color1: [1, 1, 1, 0], cell: 3, rotVel: 0, drag: 0.5 });
+    p.fire.emit({ x: pos.x, y: pos.y, z: pos.z, vx: vel.x * 0.9, vy: vel.y * 0.9, vz: vel.z * 0.9, life: 0.18, size0: len * 1.4, size1: len * 2.6, color0: [2.5, 2.5, 2.6, 0.5], color1: [1, 1, 1, 0], cell: 2, drag: 0 });
+    this._shakeFrom(pos, 0.9);
+  }
+
+  // Low supersonic pass over water: a rooster tail of spray behind the jet.
+  waterSpray(pos, vel, strength) {
+    const p = this.particles;
+    for (let i = 0; i < 3; i++) {
+      p.smoke.emit({
+        x: pos.x + (Math.random() - 0.5) * 8, y: pos.y, z: pos.z + (Math.random() - 0.5) * 8,
+        vx: vel.x * 0.25 + (Math.random() - 0.5) * 12, vy: 14 + Math.random() * 22 * strength, vz: vel.z * 0.25 + (Math.random() - 0.5) * 12,
+        life: 1.6 + Math.random(), size0: 4, size1: 18 * strength + 6,
+        color0: [1.15, 1.2, 1.25, 0.55 * strength], color1: [1.1, 1.15, 1.2, 0], cell: 0, drag: 1.2, gravity: 7,
+      });
+    }
+  }
+
   muzzleFlash(pos) {
     this.particles.fire.emit({ x: pos.x, y: pos.y, z: pos.z, life: 0.04, size0: 1.6, size1: 2.2, color0: [6, 4.5, 2, 1], color1: [4, 2, 0.5, 0], cell: 2, drag: 0 });
   }

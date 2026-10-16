@@ -207,6 +207,13 @@ export class GroundUnit {
     this.hasLos = false;
     this.wreckTime = 0;
     this.speed = opts.speed || 0;
+    this.elevation = opts.elevation ?? null;
+    // moving units follow a looping route (convoys) or zig-zag (ships)
+    this.route = opts.route || null;
+    this.routeIndex = opts.routeStart || 0;
+    this.turnRate = this.kind === 'ship' ? 0.05 : 0.5;
+    this.zigTimer = 10 + Math.random() * 20;
+    this.targetHeading = heading;
   }
 
   attach(scene, map) {
@@ -214,6 +221,11 @@ export class GroundUnit {
     if (this.kind === 'ship') {
       this.position.y = map.waterLevel;
       this.root.position.copy(this.position);
+    } else if (this.elevation !== null) {
+      // rooftop site
+      this.position.y = this.elevation;
+      this.root.position.copy(this.position);
+      this.root.quaternion.setFromAxisAngle(UP, -this.heading);
     } else {
       this.position.y = map.heightAt(this.position.x, this.position.z);
       this.root.position.copy(this.position);
@@ -221,6 +233,7 @@ export class GroundUnit {
       _q.setFromUnitVectors(UP, _n);
       this.root.quaternion.copy(_q).multiply(new THREE.Quaternion().setFromAxisAngle(UP, -this.heading));
     }
+    this.map = map;
     // aim point slightly above the ground
     this.position.y += this.kind === 'ship' ? 8 : 2;
     scene.add(this.root);
@@ -272,17 +285,12 @@ export class GroundUnit {
       return;
     }
     if (this.spinner) this.spinner.rotation.y += dt * (this.type === 'radar' ? 1.2 : 0.6);
-    if (this.speed > 0) {
-      _v.set(Math.sin(this.heading), 0, -Math.cos(this.heading)).multiplyScalar(this.speed * dt);
-      this.position.add(_v);
-      this.root.position.add(_v);
-      this.velocity.set(Math.sin(this.heading), 0, -Math.cos(this.heading)).multiplyScalar(this.speed);
-    }
+    if (this.speed > 0) this._move(dt, battle.map);
     if (!this.range || this.team !== 'enemy') return;
     // pick nearest hostile aircraft
     let target = null, best = Infinity;
     for (const ac of battle.aircraft) {
-      if (!ac.alive || ac.dying || ac.team === this.team) continue;
+      if (!ac.alive || ac.dying || ac.team === this.team || ac.team === 'civil') continue;
       const d = ac.position.distanceTo(this.position);
       if (d < best) { best = d; target = ac; }
     }
@@ -333,6 +341,42 @@ export class GroundUnit {
           battle.weapons.fireBullet(this, origin, vel.clone(), 4, 3.2);
         }
       }
+    }
+  }
+
+  _move(dt, map) {
+    if (this.route && this.route.length > 1) {
+      const wp = this.route[this.routeIndex % this.route.length];
+      const dx = wp.x - this.position.x, dz = wp.z - this.position.z;
+      if (dx * dx + dz * dz < 30 * 30) this.routeIndex = (this.routeIndex + 1) % this.route.length;
+      this.targetHeading = Math.atan2(dx, -dz);
+    } else if (this.kind === 'ship') {
+      // zig-zag and turn away from shallow water
+      this.zigTimer -= dt;
+      if (this.zigTimer <= 0) {
+        this.zigTimer = 20 + Math.random() * 25;
+        this.targetHeading = this.heading + (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5);
+      }
+      const ax = this.position.x + Math.sin(this.heading) * 400, az = this.position.z - Math.cos(this.heading) * 400;
+      if (map.heightAt(ax, az) > map.waterLevel - 10) this.targetHeading = this.heading + 2.2;
+    }
+    let dh = this.targetHeading - this.heading;
+    dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+    this.heading += Math.sign(dh) * Math.min(Math.abs(dh), this.turnRate * dt);
+    const sx = Math.sin(this.heading), sz = -Math.cos(this.heading);
+    this.velocity.set(sx, 0, sz).multiplyScalar(this.speed);
+    this.position.x += sx * this.speed * dt;
+    this.position.z += sz * this.speed * dt;
+    if (this.kind === 'ship') {
+      this.root.position.set(this.position.x, map.waterLevel, this.position.z);
+      this.root.rotation.set(0, -this.heading, Math.sin(this.wreckTime + this.position.x * 0.01) * 0.01);
+    } else {
+      const h = map.heightAt(this.position.x, this.position.z);
+      this.position.y = h + 2;
+      this.root.position.set(this.position.x, h, this.position.z);
+      map.normalAt(this.position.x, this.position.z, _n);
+      _q.setFromUnitVectors(UP, _n);
+      this.root.quaternion.copy(_q).multiply(new THREE.Quaternion().setFromAxisAngle(UP, -this.heading));
     }
   }
 

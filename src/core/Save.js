@@ -15,6 +15,9 @@ export const DEFAULT_SETTINGS = {
   cameraShake: true,
   touchControls: 'auto',
   unlockAll: false,
+  lockAssist: true,
+  targetCam: true,
+  weaponCam: false,
 };
 
 export class Save {
@@ -49,13 +52,23 @@ export class Save {
     return Object.values(this.data.completed).filter((c) => c && c.stars > 0).length;
   }
 
+  isCompleted(id) {
+    const c = this.data.completed[id];
+    return !!(c && c.stars > 0);
+  }
+
+  // Special operations list the exact missions they need; "unlock all" does
+  // not open them.
   isMissionUnlocked(index, missions) {
+    const m = missions[index];
+    if (m && m.requires) return m.requires.every((id) => this.isCompleted(id));
     if (this.settings.unlockAll || index === 0) return true;
     const prev = missions[index - 1];
-    return !!(this.data.completed[prev.id] && this.data.completed[prev.id].stars > 0);
+    return this.isCompleted(prev.id);
   }
 
   isJetUnlocked(jet) {
+    if (jet.requires) return jet.requires.every((id) => this.isCompleted(id)) && (jet.exclusive || this.settings.unlockAll || this.completedCount() >= jet.unlock);
     return this.settings.unlockAll || this.completedCount() >= jet.unlock;
   }
 

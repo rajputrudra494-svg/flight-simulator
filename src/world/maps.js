@@ -1,6 +1,7 @@
 // Map (theatre) definitions. Each map provides a deterministic height function
 // plus look-and-feel parameters (sky, fog, water, terrain palette, clouds, trees).
 import { Simplex2, smoothstep, lerp, clamp } from './noise.js';
+import { CityLayout } from './cityLayout.js';
 
 // ---------------------------------------------------------------------------
 // Height functions
@@ -128,6 +129,92 @@ function highlandsHeight(n, n2) {
   };
 }
 
+// Metro Bay: a coastal plain with a river estuary running through downtown,
+// hills to the north and the open sea to the south.
+export function metroRiverX(z) {
+  return 900 + 700 * Math.sin(z / 3800) + 300 * Math.sin(z / 1300 + 0.7);
+}
+export function metroCoastZ(x) {
+  return 5200 + 900 * Math.sin(x / 5200 + 0.6) + 500 * Math.sin(x / 1900);
+}
+
+function metroHeight(n, n2) {
+  return (x, z) => {
+    let h = 14 + n.fbm(x / 6000, z / 6000, 3) * 6 + n2.fbm(x / 1500, z / 1500, 2) * 2;
+    // mountains to the north
+    const north = smoothstep(-6500, -16000, z + n2.noise(x / 7000, 3.3) * 2500);
+    h += north * (180 + n.ridged(x / 6000, z / 6000, 5) * 1500);
+    // rolling hills far east and west of the city
+    const side = smoothstep(12500, 20000, Math.abs(x - 1000) + n2.noise(z / 5000, 1.1) * 2000);
+    h += side * (60 + n.fbm(x / 4000, z / 4000, 4) * 320) * (1 - north * 0.5);
+    // the sea to the south
+    const cz = metroCoastZ(x) + n2.noise(x / 2500, 9.1) * 300;
+    const sea = smoothstep(cz - 150, cz + 600, z);
+    h = lerp(h, -40 - smoothstep(cz, cz + 6000, z) * 60, sea);
+    // river estuary from the mountains to the bay
+    const dr = Math.abs(x - metroRiverX(z));
+    const width = 170 + smoothstep(0, 5200, z) * 260;
+    const river = smoothstep(width + 160, width, dr) * smoothstep(-12500, -9500, z);
+    h = lerp(h, -12, river);
+    // a few islands out in the bay
+    for (const [ix, iz, r] of [[-4200, 8600, 900], [3600, 9400, 600], [7800, 8200, 1100]]) {
+      const d = Math.hypot(x - ix, z - iz) / r;
+      if (d < 1) h = Math.max(h, (1 - d * d) * 70 + n2.fbm(x / 400, z / 400, 2) * 8 - 8);
+    }
+    return h;
+  };
+}
+
+// Desert Metropolis: flat golden coast, dunes inland and a palm-shaped
+// island off the shore.
+export function desertCoastX(z) {
+  return -3000 + 600 * Math.sin(z / 6000) + 250 * Math.sin(z / 1700 + 1.2);
+}
+const PALM = { x0: -3200, z: 2600, x1: -8200, fronds: 7 };
+
+function segDist(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(px - ax - dx * t, pz - az - dz * t);
+}
+
+function palmLand(x, z) {
+  if (x > PALM.x0 + 300 || x < PALM.x1 - 3200 || Math.abs(z - PALM.z) > 3600) return -Infinity;
+  let d = segDist(x, z, PALM.x0 + 200, PALM.z, PALM.x1, PALM.z) - 120;
+  // fronds branching off the outer half of the trunk
+  for (let i = 0; i < PALM.fronds; i++) {
+    const fx = PALM.x1 + 300 + i * 420;
+    for (const s of [-1, 1]) {
+      const ex = fx + 650, ez = PALM.z + s * (900 + i * 60);
+      d = Math.min(d, segDist(x, z, fx, PALM.z, ex, ez) - 45);
+    }
+  }
+  // crescent breakwater
+  const cx = PALM.x1 + 800, r = Math.hypot(x - cx, z - PALM.z);
+  const ang = Math.atan2(z - PALM.z, x - cx);
+  if (Math.abs(ang) > Math.PI * 0.42) d = Math.min(d, Math.abs(r - 2700) - 70);
+  return d < 0 ? 3.5 : d < 40 ? 3.5 - d * 0.3 : -Infinity;
+}
+
+function desertHeight(n, n2) {
+  return (x, z) => {
+    let h = 8 + n.fbm(x / 7000, z / 7000, 3) * 4;
+    // dunes inland
+    const inland = smoothstep(5500, 12000, x + n2.noise(z / 4000, 2.2) * 1500);
+    const dune = Math.abs(Math.sin((x * 0.75 + z * 0.66) / 210 + n2.noise(x / 1800, z / 1800) * 2.6));
+    h += inland * (dune * 34 + n.fbm(x / 3000, z / 3000, 4) * 70 + 30);
+    // distant rocky mountains in the east
+    h += smoothstep(17000, 26000, x) * n.ridged(x / 5000, z / 5000, 5) * 1100;
+    // sea to the west
+    const cx = desertCoastX(z) + n2.noise(z / 2000, 4.4) * 120;
+    const sea = smoothstep(cx + 120, cx - 500, x);
+    h = lerp(h, -30 - smoothstep(cx, cx - 8000, x) * 40, sea);
+    const palm = palmLand(x, z);
+    if (palm > h) h = palm;
+    return h;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Map definitions
 // ---------------------------------------------------------------------------
@@ -228,9 +315,62 @@ export const MAPS = {
     trees: { kind: 'broadleaf', density: 0.9, maxAlt: 900 },
     groundAmbient: '#4a5638',
   },
+  metro: {
+    id: 'metro',
+    name: 'Metro Bay',
+    subtitle: 'Skyscrapers, a river estuary and the harbour',
+    seed: 5150,
+    heightFn: metroHeight,
+    airbaseNear: [10500, 1800],
+    lighting: { elevation: 26, azimuth: 230, turbidity: 3.4, rayleigh: 1.3, mie: 0.005, mieG: 0.82, exposure: 0.42 },
+    fog: { density: 1 / 36000, falloff: 1 / 1500, haze: 0.2 },
+    water: { level: 0, deep: '#0f3043', shallow: '#3a7c7e', absorb: 7 },
+    palette: {
+      sand: '#cdbf98', grass1: '#5a7a3a', grass2: '#7d8c4a', forest: '#2c4524',
+      rock1: '#6c675e', rock2: '#46433e', snow: '#f2f4f7', dirt: '#6e5a3e',
+    },
+    snowLine: 1700, beach: 6, forest: 0.55, fields: 0.35, strata: 0.0,
+    clouds: { density: 0.7, base: 1700, top: 2700 },
+    trees: { kind: 'broadleaf', density: 0.7, maxAlt: 1100 },
+    groundAmbient: '#4f5a44',
+    city: {
+      x: -400, z: 1200, radius: 6400, cell: 120, street: 18, seed: 9137, style: 'metro', lowRise: 16, parks: 0.07,
+      districts: [{ x: -300, z: 1500, r: 1300, h: 380 }, { x: 2700, z: 450, r: 950, h: 230 }, { x: -2700, z: -1700, r: 1050, h: 170 }, { x: 1200, z: 3600, r: 900, h: 120 }],
+      port: { x: 3800, z: 5100, r: 2600 },
+      landmarks: [{ type: 'needle', x: -980, z: 2020, h: 560 }, { type: 'twin', x: 380, z: 820, h: 420 }, { type: 'stadium', x: -3600, z: 2900, r: 130, h: 42 }],
+      exclude: [{ x: -980, z: 2020, r: 70 }, { x: 380, z: 820, r: 90 }, { x: -3600, z: 2900, r: 170 }],
+      bridge: { x0: 600, x1: 2150, z: 960, deckY: 44, towerH: 150, towers: [1050, 1700] },
+    },
+  },
+  desert: {
+    id: 'desert',
+    name: 'Desert Metropolis',
+    subtitle: 'Supertall towers on a golden coast at dusk',
+    seed: 8686,
+    heightFn: desertHeight,
+    airbaseNear: [9500, -3500],
+    lighting: { elevation: 3, azimuth: 262, turbidity: 5.5, rayleigh: 2.4, mie: 0.008, mieG: 0.88, exposure: 0.5 },
+    fog: { density: 1 / 30000, falloff: 1 / 1600, haze: 0.24 },
+    water: { level: 0, deep: '#0c3446', shallow: '#3aa1a0', absorb: 9 },
+    palette: {
+      sand: '#e2c48c', grass1: '#cfae74', grass2: '#d8b97e', forest: '#5d6a3a',
+      rock1: '#a87a52', rock2: '#7a5438', snow: '#f0e8de', dirt: '#b08a5a',
+    },
+    snowLine: 99999, beach: 8, forest: 0.08, fields: 0.0, strata: 0.4,
+    clouds: { density: 0.25, base: 2800, top: 3600 },
+    trees: { kind: 'tropical', density: 0.35, maxAlt: 120 },
+    groundAmbient: '#9a7a52',
+    city: {
+      x: 1200, z: 0, radius: 7200, cell: 120, street: 20, seed: 4411, style: 'gulf', lowRise: 13, parks: 0.05,
+      shape: (x) => x < 6200,
+      districts: [{ x: 900, z: -400, r: 1500, h: 430 }, { x: -1600, z: 4600, r: 1000, h: 300 }, { x: 2600, z: -3600, r: 1000, h: 220 }, { x: -1300, z: -2600, r: 800, h: 160 }],
+      landmarks: [{ type: 'supertall', x: 1250, z: -350, h: 828 }, { type: 'twin', x: -1550, z: 4400, h: 330 }, { type: 'stadium', x: 3600, z: 2600, r: 120, h: 38 }],
+      exclude: [{ x: 1250, z: -350, r: 120 }, { x: -1550, z: 4400, r: 90 }, { x: 3600, z: 2600, r: 160 }],
+    },
+  },
 };
 
-export const MAP_ORDER = ['pacific', 'canyon', 'alps', 'arctic', 'highlands'];
+export const MAP_ORDER = ['pacific', 'canyon', 'alps', 'arctic', 'highlands', 'metro', 'desert'];
 
 // Time-of-day presets that missions or free flight can apply on top of a map.
 export const TIME_PRESETS = {
@@ -239,6 +379,8 @@ export const TIME_PRESETS = {
   noon: { elevation: 62, azimuthOffset: 0, turbidity: 2.4, rayleigh: 1.0, mie: 0.004, mieG: 0.8, exposure: 0.34 },
   afternoon: { elevation: 30, azimuthOffset: 50, turbidity: 3.0, rayleigh: 1.2, mie: 0.005, mieG: 0.8, exposure: 0.41 },
   sunset: { elevation: 4, azimuthOffset: 95, turbidity: 4.5, rayleigh: 2.6, mie: 0.007, mieG: 0.88, exposure: 0.58 },
+  dusk: { elevation: 0.8, azimuthOffset: 100, turbidity: 5.0, rayleigh: 3.0, mie: 0.008, mieG: 0.9, exposure: 0.8 },
+  night: { elevation: -14, azimuthOffset: 120, turbidity: 2.0, rayleigh: 1.0, mie: 0.003, mieG: 0.8, exposure: 1.25, night: true, moonElevation: 34, moonAzimuthOffset: -60 },
 };
 
 // ---------------------------------------------------------------------------
@@ -254,6 +396,7 @@ export class MapRuntime {
     this.waterLevel = def.water.level;
     this.airbase = null;
     this._findAirbase();
+    this.city = def.city ? new CityLayout(this, def.city) : null;
   }
 
   _findAirbase() {
@@ -282,6 +425,8 @@ export class MapRuntime {
           const mean = sum / cnt;
           const std = Math.sqrt(Math.max(0, sum2 / cnt - mean * mean));
           let cost = std + Math.max(0, wl + 12 - mn) * 4 + Math.hypot(gx, gz) * 6;
+          // keep the airport out of the city
+          if (this.def.city && Math.hypot(x - this.def.city.x, z - this.def.city.z) < this.def.city.radius + 2600) cost += 1e5;
           if (this.def.id === 'canyon') cost += Math.max(0, 300 - mean) * 2; // keep on plateau
           if (!best || cost < best.cost) best = { x, z, heading: hd, cost, mean };
         }
@@ -329,9 +474,24 @@ export class MapRuntime {
     return h;
   }
 
-  // Height of the surface an aircraft can hit (terrain or water)
-  surfaceAt(x, z) {
-    return Math.max(this.heightAt(x, z), this.waterLevel);
+  // Height of the surface an aircraft can hit: terrain, water or a building
+  // whose underside is below height y (so you can fly under a bridge)
+  surfaceAt(x, z, y = Infinity) {
+    const h = Math.max(this.heightAt(x, z), this.waterLevel);
+    if (this.city) {
+      const t = this.city.obstacleTop(x, z, y);
+      if (t > h) return t;
+    }
+    return h;
+  }
+
+  buildingTopAt(x, z, y = Infinity) {
+    return this.city ? this.city.obstacleTop(x, z, y) : -Infinity;
+  }
+
+  isUrban(x, z) {
+    if (!this.city) return 0;
+    return this.city.typeAt(x, z);
   }
 
   normalAt(x, z, out) {
@@ -362,6 +522,10 @@ export class MapRuntime {
       const h = this.heightAt(px, pz);
       if (h < this.waterLevel + minAbove) continue;
       if (this.airbase && Math.hypot(px - this.airbase.x, pz - this.airbase.z) < 2200 && !opts.allowAirbase) continue;
+      if (this.city && !opts.allowUrban) {
+        const t = this.city.typeAt(px, pz);
+        if (t === 1 || t === 3) continue;
+      }
       this.normalAt(px, pz, n);
       const slope = 1 - n.y;
       if (slope > maxSlope) continue;
@@ -426,6 +590,9 @@ export function resolveLighting(mapDef, timeKey) {
       mie: p.mie,
       mieG: p.mieG,
       exposure: p.exposure,
+      night: !!p.night,
+      moonElevation: p.moonElevation,
+      moonAzimuth: p.moonAzimuthOffset !== undefined ? base.azimuth + p.moonAzimuthOffset : undefined,
     };
   }
   return base;

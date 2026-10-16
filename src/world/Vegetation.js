@@ -109,6 +109,7 @@ export class Vegetation {
     this.cells = new Map();
     this.centerKey = null;
     this.forestAmount = map.def.forest;
+    if (map.city) this.perCell = Math.max(this.perCell, Math.round(14 * Math.min(1.3, quality.trees)));
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._s = new THREE.Vector3();
@@ -134,7 +135,10 @@ export class Vegetation {
       const x = (ci + rand()) * this.cellSize;
       const z = (cj + rand()) * this.cellSize;
       const r = rand();
-      const forest = this._forestMask(x, z);
+      let forest = this._forestMask(x, z);
+      const urban = this.map.isUrban(x, z);
+      if (urban === 1 || urban === 3) continue;
+      if (urban === 2) forest = Math.max(forest, 0.55);
       if (r > 0.08 + forest * 0.92) continue;
       const h = this.map.heightAt(x, z);
       if (h < wl + 3 || h > this.maxAlt) continue;

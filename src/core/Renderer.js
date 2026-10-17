@@ -1,5 +1,7 @@
 // WebGL renderer + optional post-processing chain (MSAA, bloom, grading),
 // with dynamic resolution scaling to keep frame rate stable on weak devices.
+// The cockpit interior is drawn as an overlay pass after the world (depth
+// cleared) so the airframe's outer skin can never cover the instruments.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -60,6 +62,10 @@ export class GameRenderer {
     this.preset = null;
     this.dynamic = new DynamicResolution();
     this.effects = { damage: 0, whiteout: 0, blackout: 0 };
+    this.overlayScene = new THREE.Scene();
+    this.overlayScene.name = 'cockpit-overlay';
+    this.overlayScene.matrixWorldAutoUpdate = true;
+    this.overlayObject = null;
   }
 
   init(preset) {
@@ -107,6 +113,11 @@ export class GameRenderer {
     const composer = new EffectComposer(this.renderer, rt);
     this.renderPass = new RenderPass(null, null);
     composer.addPass(this.renderPass);
+    this.overlayPass = new RenderPass(this.overlayScene, null);
+    this.overlayPass.clear = false;
+    this.overlayPass.clearDepth = true;
+    this.overlayPass.enabled = false;
+    composer.addPass(this.overlayPass);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.38, 0.55, 1.35);
     composer.addPass(this.bloom);
     composer.addPass(new OutputPass());
@@ -134,11 +145,22 @@ export class GameRenderer {
     if (this.dynamic.update(frameMs)) this.resize();
   }
 
+  // object (or null) drawn on top of the world after a depth clear
+  setOverlay(obj) {
+    if (obj === this.overlayObject) return;
+    if (this.overlayObject) this.overlayScene.remove(this.overlayObject);
+    if (obj) this.overlayScene.add(obj);
+    this.overlayObject = obj;
+  }
+
   render(scene, camera, dt = 0.016) {
     const e = this.effects;
+    const overlay = !!this.overlayObject;
     if (this.composer) {
       this.renderPass.scene = scene;
       this.renderPass.camera = camera;
+      this.overlayPass.camera = camera;
+      this.overlayPass.enabled = overlay;
       const u = this.grade.uniforms;
       u.uDamage.value = e.damage;
       u.uWhiteout.value = e.whiteout;
@@ -146,7 +168,14 @@ export class GameRenderer {
       u.uTime.value += dt;
       this.composer.render(dt);
     } else {
-      this.renderer.render(scene, camera);
+      const r = this.renderer;
+      r.render(scene, camera);
+      if (overlay) {
+        r.autoClear = false;
+        r.clearDepth();
+        r.render(this.overlayScene, camera);
+        r.autoClear = true;
+      }
     }
   }
 }

@@ -538,6 +538,11 @@ export class Game {
   _render(dt) {
     this.renderer.info.reset();
     this.renderer.info.autoReset = false;
+    // cockpit interior: an overlay that follows the player's airframe
+    const model = this.battle && this.rig.mode === 'cockpit' ? this.battle.player?.model : null;
+    const cockpit = model && model.cockpitOn ? model.cockpit : null;
+    if (cockpit) cockpit.syncTransform();
+    this.gr.setOverlay(cockpit ? cockpit.holder : null);
     this.gr.render(this.world.scene, this.camera, dt);
     if (dt > 0 && this.state !== 'loading') this.gr.adapt(dt * 1000);
   }
@@ -667,7 +672,10 @@ export class Game {
     if (wantPod) tc.update(dt, this.world.scene, p, this.targeting.target, this.camera);
     else tc.active = false;
     if (cockpit && p && p.model.cockpit) {
-      p.model.cockpit.update(dt, { ac: p, battle, targeting: this.targeting, warnings: this.hud.warnings, tgpTexture: tc.texture });
+      p.model.cockpit.update(dt, {
+        ac: p, battle, targeting: this.targeting, warnings: this.hud.warnings, tgpTexture: tc.texture,
+        camera: this.camera, world: this.world, exposure: this.renderer.toneMappingExposure,
+      });
     }
     this._render(dt);
     if (tc.active && !cockpit && this.rig.mode !== 'weapon') {

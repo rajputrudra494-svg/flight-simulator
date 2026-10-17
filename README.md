@@ -49,12 +49,23 @@ locked (even with *Unlock all*) until you complete **Heavy Escort**, **Final App
 **Dragon's Teeth**, which also opens its own special operation, **Operation Atlas**.
 
 ### Cockpits
-Press **C** for the cockpit view. Fighters get a 3D cockpit with live multi-function displays
-(radar scope, stores and engine page, HSI) and the **targeting-pod video** on the centre display,
-a glare shield, HUD combiner, consoles, a moving stick (side-stick on the F-16, F-22, F-35 and
-Rafale) and throttle. Airliners get a glass flight deck with live PFD, ND, engine and system
-displays, autopilot panel, overhead panel, windshield frame, yokes or side-sticks and moving thrust
-levers.
+Press **C** for the cockpit view. Every aircraft has its own cockpit layout, lit like a real one:
+sunlight only gets in through the windows (it moves across the panels as you turn), the panel
+legends and gauge markings glow with the integral lighting as the light fades, and a dim flood
+light fills the cockpit after dark.
+
+- **Fighters**: the type's own instrument panel: multi-function displays (radar scope, stores,
+  situation and engine pages) with the **targeting-pod video**, the F-35's and J-20's panoramic
+  screen, or analogue instruments around a radar scope on the older jets (MiG-21, MiG-29, F-14,
+  F-15, Mirage), plus the glare-shield coaming, HUD combiner, windscreen bow and mirrors on framed
+  canopies, tinted canopy glass, side consoles, a moving stick (side-stick on the F-16, F-22, F-35
+  and Rafale) and throttle.
+- **Airliners**: a flight deck with each type's real window layout and frames, V-shaped glare shield
+  with the autopilot panel, live PFD, ND, engine and system displays (plus the A380's onboard
+  information screens), Concorde's and the An-124's analogue instruments, a backlit overhead panel,
+  the centre pedestal with CDUs and moving thrust levers, yokes, ram's-horn or side-sticks and the
+  first officer's seat. Airliners are flown off the PFD, so the green head-up symbology is hidden
+  in their cockpit view.
 
 ### Theatres (maps)
 - **Pacific Atoll**, **Red Canyon**, **Alpine Peaks**, **Frozen Fjords**, **Green Highlands**

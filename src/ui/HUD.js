@@ -120,114 +120,117 @@ export class HUD {
       const hudCx = bore.on ? bore.x : cx;
       const hudCy = bore.on ? bore.y : cy;
 
-      // --- Pitch ladder centred on the boresight, rotated by roll
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(cx - 260 * S, cy - 230 * S, 520 * S, 460 * S);
-      ctx.clip();
-      ctx.translate(hudCx, hudCy);
-      ctx.rotate(this._cameraRoll(camera));
-      ctx.font = `${12 * S}px ${FONT}`;
-      for (let a = -90; a <= 90; a += 5) {
-        const dy = (att.pitch - a) * pxPerDeg;
-        if (Math.abs(dy) > 260 * S) continue;
-        const major = a % 10 === 0;
-        const halfW = a === 0 ? 170 * S : major ? 70 * S : 40 * S;
-        const gap = 26 * S;
-        ctx.strokeStyle = a === 0 ? HUD_GREEN : HUD_DIM;
-        ctx.setLineDash(a < 0 ? [6 * S, 5 * S] : []);
-        ctx.beginPath();
-        ctx.moveTo(-halfW, dy); ctx.lineTo(-gap, dy);
-        ctx.moveTo(gap, dy); ctx.lineTo(halfW, dy);
-        if (a !== 0) {
-          const tick = (a > 0 ? 8 : -8) * S;
-          ctx.moveTo(-halfW, dy); ctx.lineTo(-halfW, dy + tick);
-          ctx.moveTo(halfW, dy); ctx.lineTo(halfW, dy + tick);
-        }
-        ctx.stroke();
-        if (major && a !== 0) {
-          ctx.fillStyle = HUD_DIM;
-          ctx.textAlign = 'right';
-          ctx.fillText(String(Math.abs(a)), -halfW - 5 * S, dy);
-          ctx.textAlign = 'left';
-          ctx.fillText(String(Math.abs(a)), halfW + 5 * S, dy);
-        }
-      }
-      ctx.setLineDash([]);
-      ctx.restore();
-
-      // waterline symbol
-      ctx.strokeStyle = HUD_GREEN;
-      ctx.beginPath();
-      const ws = 14 * S;
-      ctx.moveTo(hudCx - ws * 2, hudCy); ctx.lineTo(hudCx - ws, hudCy); ctx.lineTo(hudCx - ws / 2, hudCy + ws / 2);
-      ctx.lineTo(hudCx, hudCy); ctx.lineTo(hudCx + ws / 2, hudCy + ws / 2); ctx.lineTo(hudCx + ws, hudCy); ctx.lineTo(hudCx + ws * 2, hudCy);
-      ctx.stroke();
-      // flight path marker
-      if (fpm && fpm.on) {
-        const r = 7 * S;
-        ctx.beginPath();
-        ctx.arc(fpm.x, fpm.y, r, 0, Math.PI * 2);
-        ctx.moveTo(fpm.x - r, fpm.y); ctx.lineTo(fpm.x - r * 2.6, fpm.y);
-        ctx.moveTo(fpm.x + r, fpm.y); ctx.lineTo(fpm.x + r * 2.6, fpm.y);
-        ctx.moveTo(fpm.x, fpm.y - r); ctx.lineTo(fpm.x, fpm.y - r * 2);
-        ctx.stroke();
-      }
-
-      // --- Speed / altitude boxes
-      const kts = fm.ias * 1.94384;
-      const spdVal = metric ? fm.ias * 3.6 : kts;
-      const altVal = metric ? p.position.y : p.position.y * 3.28084;
-      this._tape(cx - 250 * S, cy, spdVal, metric ? 50 : 50, 'left', S, metric ? 'KMH' : 'KTS');
-      this._tape(cx + 250 * S, cy, altVal, metric ? 100 : 500, 'right', S, metric ? 'M' : 'FT');
-      // radar altimeter
       const agl = p.position.y - battle.map.surfaceAt(p.position.x, p.position.z);
-      ctx.font = `${13 * S}px ${FONT}`;
-      ctx.textAlign = 'left';
-      ctx.fillStyle = agl < 150 ? AMBER : HUD_GREEN;
-      if (agl < 1500) ctx.fillText(`R ${Math.round(metric ? agl : agl * 3.28084)}`, cx + 222 * S, cy + 40 * S);
-      ctx.fillStyle = HUD_GREEN;
-      // vertical speed
-      const vs = metric ? p.velocity.y : p.velocity.y * 196.85;
-      ctx.fillText(`VS ${vs >= 0 ? '+' : ''}${Math.round(vs)}`, cx + 222 * S, cy + 58 * S);
+      // airliner flight decks are flown off the PFD: no head-up symbology there
+      if (!(civil && cameraMode === 'cockpit')) {
+        // --- Pitch ladder centred on the boresight, rotated by roll
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cx - 260 * S, cy - 230 * S, 520 * S, 460 * S);
+        ctx.clip();
+        ctx.translate(hudCx, hudCy);
+        ctx.rotate(this._cameraRoll(camera));
+        ctx.font = `${12 * S}px ${FONT}`;
+        for (let a = -90; a <= 90; a += 5) {
+          const dy = (att.pitch - a) * pxPerDeg;
+          if (Math.abs(dy) > 260 * S) continue;
+          const major = a % 10 === 0;
+          const halfW = a === 0 ? 170 * S : major ? 70 * S : 40 * S;
+          const gap = 26 * S;
+          ctx.strokeStyle = a === 0 ? HUD_GREEN : HUD_DIM;
+          ctx.setLineDash(a < 0 ? [6 * S, 5 * S] : []);
+          ctx.beginPath();
+          ctx.moveTo(-halfW, dy); ctx.lineTo(-gap, dy);
+          ctx.moveTo(gap, dy); ctx.lineTo(halfW, dy);
+          if (a !== 0) {
+            const tick = (a > 0 ? 8 : -8) * S;
+            ctx.moveTo(-halfW, dy); ctx.lineTo(-halfW, dy + tick);
+            ctx.moveTo(halfW, dy); ctx.lineTo(halfW, dy + tick);
+          }
+          ctx.stroke();
+          if (major && a !== 0) {
+            ctx.fillStyle = HUD_DIM;
+            ctx.textAlign = 'right';
+            ctx.fillText(String(Math.abs(a)), -halfW - 5 * S, dy);
+            ctx.textAlign = 'left';
+            ctx.fillText(String(Math.abs(a)), halfW + 5 * S, dy);
+          }
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
 
-      // --- Heading tape and bank scale
-      this._headingTape(cx, cy - 210 * S, att.heading, S);
-      this._bankScale(hudCx, hudCy, camera, S);
+        // waterline symbol
+        ctx.strokeStyle = HUD_GREEN;
+        ctx.beginPath();
+        const ws = 14 * S;
+        ctx.moveTo(hudCx - ws * 2, hudCy); ctx.lineTo(hudCx - ws, hudCy); ctx.lineTo(hudCx - ws / 2, hudCy + ws / 2);
+        ctx.lineTo(hudCx, hudCy); ctx.lineTo(hudCx + ws / 2, hudCy + ws / 2); ctx.lineTo(hudCx + ws, hudCy); ctx.lineTo(hudCx + ws * 2, hudCy);
+        ctx.stroke();
+        // flight path marker
+        if (fpm && fpm.on) {
+          const r = 7 * S;
+          ctx.beginPath();
+          ctx.arc(fpm.x, fpm.y, r, 0, Math.PI * 2);
+          ctx.moveTo(fpm.x - r, fpm.y); ctx.lineTo(fpm.x - r * 2.6, fpm.y);
+          ctx.moveTo(fpm.x + r, fpm.y); ctx.lineTo(fpm.x + r * 2.6, fpm.y);
+          ctx.moveTo(fpm.x, fpm.y - r); ctx.lineTo(fpm.x, fpm.y - r * 2);
+          ctx.stroke();
+        }
 
-      // --- Left data block
-      ctx.font = `${14 * S}px ${FONT}`;
-      ctx.textAlign = 'left';
-      const lx = cx - 290 * S, ly = cy + 110 * S;
-      ctx.fillStyle = Math.abs(fm.gLoad) > p.spec.flight.maxG * 0.95 ? AMBER : HUD_GREEN;
-      ctx.fillText(`G  ${fm.gLoad.toFixed(1)}`, lx, ly);
-      ctx.fillStyle = HUD_GREEN;
-      ctx.fillText(`M  ${fm.mach.toFixed(2)}`, lx, ly + 18 * S);
-      ctx.fillStyle = fm.stallWarn ? AMBER : HUD_GREEN;
-      ctx.fillText(`α  ${THREE.MathUtils.radToDeg(fm.alpha).toFixed(1)}`, lx, ly + 36 * S);
-      ctx.fillStyle = HUD_DIM;
-      ctx.fillText(`${this.maxG.toFixed(1)}`, lx + 90 * S, ly);
-      // throttle
-      this._throttle(cx - 330 * S, cy + 40 * S, fm.throttle, fm.afterburner, S, p.controls.airbrake, p.controls.gear, fm.reverser);
-
-      // --- Weapons block (master arm, selected missile, gun, flares)
-      const rx = cx + 200 * S, ry = cy + 110 * S;
-      ctx.textAlign = 'left';
-      if (civil) {
+        // --- Speed / altitude boxes
+        const kts = fm.ias * 1.94384;
+        const spdVal = metric ? fm.ias * 3.6 : kts;
+        const altVal = metric ? p.position.y : p.position.y * 3.28084;
+        this._tape(cx - 250 * S, cy, spdVal, metric ? 50 : 50, 'left', S, metric ? 'KMH' : 'KTS');
+        this._tape(cx + 250 * S, cy, altVal, metric ? 100 : 500, 'right', S, metric ? 'M' : 'FT');
+        // radar altimeter
+        ctx.font = `${13 * S}px ${FONT}`;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = agl < 150 ? AMBER : HUD_GREEN;
+        if (agl < 1500) ctx.fillText(`R ${Math.round(metric ? agl : agl * 3.28084)}`, cx + 222 * S, cy + 40 * S);
         ctx.fillStyle = HUD_GREEN;
-        ctx.fillText(p.controls.gear ? 'FLAPS FULL' : 'CLEAN', rx, ry);
-        ctx.fillText(`N1 ${Math.round(22 + fm.throttle * 76)}%`, rx, ry + 18 * S);
-        ctx.fillText(`GW ${Math.round(fm.mass / 1000)}T`, rx, ry + 36 * S);
-        if (fm.autobrake && fm.autobrake.available) ctx.fillText(`A/BRK ${fm.autobrake.mode}`, rx, ry + 54 * S);
-      } else {
-        const isRadar = targeting && targeting.missileType === 'radar';
+        // vertical speed
+        const vs = metric ? p.velocity.y : p.velocity.y * 196.85;
+        ctx.fillText(`VS ${vs >= 0 ? '+' : ''}${Math.round(vs)}`, cx + 222 * S, cy + 58 * S);
+
+        // --- Heading tape and bank scale
+        this._headingTape(cx, cy - 210 * S, att.heading, S);
+        this._bankScale(hudCx, hudCy, camera, S);
+
+        // --- Left data block
+        ctx.font = `${14 * S}px ${FONT}`;
+        ctx.textAlign = 'left';
+        const lx = cx - 290 * S, ly = cy + 110 * S;
+        ctx.fillStyle = Math.abs(fm.gLoad) > p.spec.flight.maxG * 0.95 ? AMBER : HUD_GREEN;
+        ctx.fillText(`G  ${fm.gLoad.toFixed(1)}`, lx, ly);
+        ctx.fillStyle = HUD_GREEN;
+        ctx.fillText(`M  ${fm.mach.toFixed(2)}`, lx, ly + 18 * S);
+        ctx.fillStyle = fm.stallWarn ? AMBER : HUD_GREEN;
+        ctx.fillText(`α  ${THREE.MathUtils.radToDeg(fm.alpha).toFixed(1)}`, lx, ly + 36 * S);
         ctx.fillStyle = HUD_DIM;
-        ctx.fillText('ARM  A/A', rx, ry - 20 * S);
-        ctx.fillStyle = HUD_GREEN;
-        ctx.fillText(`${isRadar ? 'MRM RDR' : 'SRM IR'}  x${p.missiles}`, rx, ry);
-        ctx.fillText(`GUN ${p.gunAmmo}`, rx, ry + 18 * S);
-        ctx.fillStyle = p.flares > 0 ? HUD_GREEN : AMBER;
-        ctx.fillText(`FLR ${p.flares}`, rx, ry + 36 * S);
+        ctx.fillText(`${this.maxG.toFixed(1)}`, lx + 90 * S, ly);
+        // throttle
+        this._throttle(cx - 330 * S, cy + 40 * S, fm.throttle, fm.afterburner, S, p.controls.airbrake, p.controls.gear, fm.reverser);
+
+        // --- Weapons block (master arm, selected missile, gun, flares)
+        const rx = cx + 200 * S, ry = cy + 110 * S;
+        ctx.textAlign = 'left';
+        if (civil) {
+          ctx.fillStyle = HUD_GREEN;
+          ctx.fillText(p.controls.gear ? 'FLAPS FULL' : 'CLEAN', rx, ry);
+          ctx.fillText(`N1 ${Math.round(22 + fm.throttle * 76)}%`, rx, ry + 18 * S);
+          ctx.fillText(`GW ${Math.round(fm.mass / 1000)}T`, rx, ry + 36 * S);
+          if (fm.autobrake && fm.autobrake.available) ctx.fillText(`A/BRK ${fm.autobrake.mode}`, rx, ry + 54 * S);
+        } else {
+          const isRadar = targeting && targeting.missileType === 'radar';
+          ctx.fillStyle = HUD_DIM;
+          ctx.fillText('ARM  A/A', rx, ry - 20 * S);
+          ctx.fillStyle = HUD_GREEN;
+          ctx.fillText(`${isRadar ? 'MRM RDR' : 'SRM IR'}  x${p.missiles}`, rx, ry);
+          ctx.fillText(`GUN ${p.gunAmmo}`, rx, ry + 18 * S);
+          ctx.fillStyle = p.flares > 0 ? HUD_GREEN : AMBER;
+          ctx.fillText(`FLR ${p.flares}`, rx, ry + 36 * S);
+        }
       }
 
       // --- Targets

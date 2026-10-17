@@ -128,7 +128,9 @@ export const FIGHTERS = {
       nozzles: [{ x: 1.45, y: -0.3, z: 17.4, r: 0.55, len: 1.6, type: 'round' }, { x: -1.45, y: -0.3, z: 17.4, r: 0.55, len: 1.6, type: 'round' }],
       pylons: [{ x: 2.1, y: -0.25, z: 10.2, type: 'ir' }, { x: 0.55, y: -0.65, z: 10.0, type: 'radar', body: true }, { x: 0.55, y: -0.65, z: 14.0, type: 'radar', body: true }, { x: 1.5, y: -1.1, z: 11.5, type: 'radar' }],
       gear: { nose: { z: 4.6, y: -0.55, len: 1.8 }, main: { z: 12.5, x: 2.4, y: -0.3, len: 2.0 } },
-      pilotEye: { y: 1.1, z: 5.2 },
+      // front seat sits well back from the pointed windscreen (keeps the
+      // instrument panel inside the canopy glass in the cockpit view)
+      pilotEye: { y: 1.1, z: 5.5 },
       gun: { x: -0.75, y: -0.2, z: 5.5 },
       lights: { wingtip: 9.7, tail: [1.6, 3.4, 16.4] },
     },

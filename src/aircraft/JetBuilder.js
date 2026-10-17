@@ -392,7 +392,9 @@ export class JetModel {
       if (c.frameAt > 0) {
         const fz = cz0 + cl * c.frameAt;
         const frameSec = (dz, k) => ({ z: fz + dz, w: c.w * 0.97 * k, top: c.h * 0.92 * k, bot: 0.12, y: c.y });
-        add(loft([frameSec(-0.05, 1.04), frameSec(0.05, 1.04)], { radial: 24, smooth: 1, capStart: true, capEnd: true }), mats.body, root, false);
+        // a capped (solid) hoop: seen from the cockpit it would be a wall, so the
+        // interior draws its own windscreen bow and this one is hidden there
+        this.canopyFrame = add(loft([frameSec(-0.05, 1.04), frameSec(0.05, 1.04)], { radial: 24, smooth: 1, capStart: true, capEnd: true }), mats.body, root, false);
       }
       const tub = new THREE.Mesh(new THREE.BoxGeometry(c.w * 1.5, 0.35, cl * 0.7), mats.cockpit);
       tub.position.set(0, c.y + 0.02, cz0 + cl * 0.5);
@@ -876,6 +878,9 @@ export class JetModel {
     this.lightGlow = 0;
     this.cockpit = null;
     this.cockpitOn = false;
+    // seated view: a little nose-down head angle and a wider field of view so
+    // the instrument panel is in sight (airliner panels sit lower)
+    this.cockpitView = this.airliner ? { pitch: -0.14, fov: 12 } : { pitch: -0.1, fov: 12 };
     this._q = new THREE.Quaternion();
     this._v = new THREE.Vector3();
   }
@@ -1043,11 +1048,10 @@ export class JetModel {
 
   setCockpitView(on) {
     this.cockpitOn = on;
-    if (on && !this.cockpit) {
-      this.cockpit = buildCockpit(this);
-      this.root.add(this.cockpit.group);
-    }
+    // the interior is rendered by the game as an overlay that follows the root
+    if (on && !this.cockpit) this.cockpit = buildCockpit(this);
     if (this.canopy) this.canopy.visible = !on;
+    if (this.canopyFrame) this.canopyFrame.visible = !on;
     if (this.pilot) this.pilot.visible = !on;
     if (this.cockpit) this.cockpit.group.visible = on;
   }

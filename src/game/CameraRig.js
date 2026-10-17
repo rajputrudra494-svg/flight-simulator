@@ -122,7 +122,7 @@ export class CameraRig {
         const g = ac.fm.gLoad;
         _v.addScaledVector(_w.set(0, 1, 0).applyQuaternion(quat), -Math.min(0.06, Math.max(-0.04, (g - 1) * 0.008)));
         cam.position.copy(_v);
-        _e.set(this.lookPitch, this.lookYaw, 0, 'YXZ');
+        _e.set(this.lookPitch + (ac.model.cockpitView?.pitch || 0), this.lookYaw, 0, 'YXZ');
         _q.setFromEuler(_e);
         cam.quaternion.copy(quat).multiply(_q);
         break;
@@ -212,7 +212,7 @@ export class CameraRig {
     this.shake = Math.max(0, this.shake - dt * 2);
 
     // speed-based FOV for a sense of speed
-    const targetFov = this.mode === 'cockpit' ? this.baseFov + 5 : this.baseFov + Math.min(12, speed / 40) + ab * 3;
+    const targetFov = this.mode === 'cockpit' ? this.baseFov + (ac.model.cockpitView?.fov ?? 5) : this.baseFov + Math.min(12, speed / 40) + ab * 3;
     this.fov += (targetFov - this.fov) * Math.min(1, dt * 2);
     if (Math.abs(cam.fov - this.fov) > 0.01 || cam.near !== near) {
       cam.fov = this.fov;

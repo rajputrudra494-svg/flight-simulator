@@ -107,7 +107,7 @@ export class AIPilot {
     for (const o of battle.aircraft) {
       if (!o.alive || o.dying || o.team === ac.team || o.team === 'civil') continue;
       const d = o.position.distanceTo(ac.position);
-      if (d > this.detectRange && !this.engaged) continue;
+      if (d > this.detectRange * (o.spec.stealth ?? 1) && !this.engaged) continue;
       const score = d * (o.isPlayer ? 0.8 : 1) * (o.priority || 1);
       if (score < bestScore) { bestScore = score; best = o; }
     }

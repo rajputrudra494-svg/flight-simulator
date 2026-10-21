@@ -1,4 +1,5 @@
-// Camera modes: chase, cockpit, padlock (target), cinematic flyby, orbit.
+// Camera modes: chase, cockpit, padlock (target), cinematic flyby, orbit,
+// plus the crash camera that holds a wide, slowly drifting shot of the wreck.
 import * as THREE from 'three';
 
 const _v = new THREE.Vector3();
@@ -10,7 +11,7 @@ const _m = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
 
 export const CAMERA_MODES = ['chase', 'cockpit', 'padlock', 'flyby', 'orbit'];
-const LABELS = { chase: 'CHASE VIEW', cockpit: 'COCKPIT VIEW', padlock: 'PADLOCK VIEW', flyby: 'CINEMATIC VIEW', orbit: 'ORBIT VIEW', weapon: 'WEAPON CAM' };
+const LABELS = { chase: 'CHASE VIEW', cockpit: 'COCKPIT VIEW', padlock: 'PADLOCK VIEW', flyby: 'CINEMATIC VIEW', orbit: 'ORBIT VIEW', crash: '' };
 
 export class CameraRig {
   constructor(camera) {
@@ -32,25 +33,34 @@ export class CameraRig {
     this.fov = 65;
     this.time = 0;
     this.initialized = false;
-    this.weapon = null;
-    this.weaponHold = 0;
-    this.prevMode = 'chase';
-    this.weaponPos = new THREE.Vector3();
+    this.crash = null;
   }
 
-  // ride along behind a missile until it detonates, then return
-  followWeapon(m) {
-    if (!m) return;
-    if (this.mode !== 'weapon') this.prevMode = this.mode;
-    this.weapon = m;
-    this.weaponHold = 1.8;
-    this.mode = 'weapon';
+  // the player's aircraft is gone: watch the wreckage from where we were
+  crashView(focus) {
+    if (this.mode === 'crash') return;
+    this.preCrashMode = this.mode;
     if (this.target) this.target.model.setCockpitView(false);
+    const cam = this.camera;
+    const from = cam.position.clone();
+    const f = focus || (this.target ? this.target.position.clone() : from.clone());
+    // start a little further out and higher than the chase camera was
+    const off = from.clone().sub(f);
+    off.y = Math.max(off.y, 6);
+    if (off.length() < 40) off.setLength(40);
+    if (off.length() > 140) off.setLength(140);
+    this.crash = { focus: f, off, t: 0, side: Math.random() < 0.5 ? -1 : 1 };
+    this.mode = 'crash';
   }
 
   setTarget(ac) {
     this.target = ac;
     this.initialized = false;
+    if (this.mode === 'crash') {
+      this.mode = this.preCrashMode || 'chase';
+      this.crash = null;
+      if (ac) ac.model.setCockpitView(this.mode === 'cockpit');
+    }
   }
 
   setMode(mode) {
@@ -94,26 +104,6 @@ export class CameraRig {
     }
     const speed = ac.fm.airspeed;
     let near = 0.8;
-    if (this.mode === 'weapon') {
-      const m = this.weapon;
-      if (m && m.alive) {
-        _v.copy(m.vel).normalize();
-        this.weaponPos.copy(m.pos);
-        cam.position.copy(m.pos).addScaledVector(_v, -16).add(_w.set(0, 2.5, 0));
-        const look = m.target && m.target.position ? m.target.position : _w.copy(m.pos).addScaledVector(_v, 80);
-        cam.up.set(0, 1, 0);
-        cam.lookAt(m.target && m.pos.distanceTo(look) < 3000 ? look : _w.copy(m.pos).addScaledVector(_v, 80));
-      } else {
-        this.weaponHold -= dt;
-        cam.up.set(0, 1, 0);
-        cam.lookAt(this.weaponPos);
-        if (this.weaponHold <= 0) {
-          this.setMode(this.prevMode || 'chase');
-          this.weapon = null;
-        }
-      }
-      near = 0.5;
-    }
     switch (this.mode) {
       case 'cockpit': {
         near = 0.08;
@@ -173,6 +163,20 @@ export class CameraRig {
         cam.position.copy(this.flybyPos);
         cam.up.set(0, 1, 0);
         cam.lookAt(pos);
+        near = 1;
+        break;
+      }
+      case 'crash': {
+        const c = this.crash;
+        c.t += dt;
+        // pull back and swing slowly around the wreck as the fire takes hold
+        const grow = 1 + Math.min(1.6, c.t * 0.18);
+        const ang = c.side * c.t * 0.06;
+        _v.copy(c.off).multiplyScalar(grow).applyAxisAngle(UP, ang);
+        _v.y += c.t * 1.2;
+        cam.position.copy(c.focus).add(_v);
+        cam.up.set(0, 1, 0);
+        cam.lookAt(_w.copy(c.focus).add(_v.set(0, 2, 0)));
         near = 1;
         break;
       }

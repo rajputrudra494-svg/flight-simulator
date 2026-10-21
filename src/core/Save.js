@@ -2,7 +2,7 @@
 const KEY = 'strike-horizon-save-v1';
 
 export const DEFAULT_SETTINGS = {
-  quality: 'auto',
+  quality: 'high',
   dynamicRes: true,
   invertPitch: false,
   mouseFlight: false,
@@ -19,7 +19,17 @@ export const DEFAULT_SETTINGS = {
   unlockAll: false,
   lockAssist: true,
   targetCam: true,
-  weaponCam: false,
+  // scene exposure multiplier: below 1 is a little dimmer than the raw sky model
+  brightness: 0.8,
+  // phones and tablets: tilt to fly (null = automatic: on for phones and
+  // tablets, off on desktops), vibration on firing / hits
+  gyro: null,
+  gyroSensitivity: 1,
+  gyroInvertPitch: false,
+  haptics: true,
+  // custom control layout (see core/Controls.js); null = defaults
+  controls: null,
+  touchLayout: null,
 };
 
 export class Save {
@@ -31,6 +41,10 @@ export class Save {
         const d = JSON.parse(raw);
         this.data.completed = d.completed || {};
         this.data.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
+        // the weapon camera was removed
+        delete this.data.settings.weaponCam;
+        // v2: graphics default to the High preset (auto-detect stays selectable)
+        if (!d.v && this.data.settings.quality === 'auto') this.data.settings.quality = 'high';
         this.data.jet = d.jet || 'f16';
       }
     } catch (e) {
@@ -43,6 +57,7 @@ export class Save {
   }
 
   write() {
+    this.data.v = 2;
     try {
       localStorage.setItem(KEY, JSON.stringify(this.data));
     } catch (e) {
@@ -69,7 +84,9 @@ export class Save {
     return this.isCompleted(prev.id);
   }
 
-  isJetUnlocked(jet) {
+  // Campaign unlocks gate missions only: free flight opens the whole hangar.
+  isJetUnlocked(jet, { free = false } = {}) {
+    if (free) return true;
     if (jet.requires) return jet.requires.every((id) => this.isCompleted(id)) && (jet.exclusive || this.settings.unlockAll || this.completedCount() >= jet.unlock);
     return this.settings.unlockAll || this.completedCount() >= jet.unlock;
   }

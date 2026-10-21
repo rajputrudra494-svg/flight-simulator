@@ -41,7 +41,11 @@ export class Aircraft {
     const w = spec.weapons;
     this.gunAmmo = opts.gunAmmo ?? w.gunAmmo;
     this.missiles = opts.missiles ?? w.missiles;
+    this.bombs = opts.bombs ?? w.bombs ?? 0;
     this.flares = opts.flares ?? w.flares;
+    // weapons-bay doors stay open for a moment after each release
+    this.bayTimer = 0;
+    this.unarmed = !!spec.unarmed;
     this.gunCooldown = 0;
     this.missileCooldown = 0;
     this.flareCooldown = 0;
@@ -127,15 +131,36 @@ export class Aircraft {
     this.spin = (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random() * 1.5);
     if (source && source.owner && source.owner !== this) source.owner.kills++;
     if (battle) battle.onAircraftKilled(this, source);
-    // some aircraft just disintegrate immediately
-    if (Math.random() < 0.35 || this.fm.onGround) this.explode(battle);
+    // a missile's warhead or a fuel tank going up tears the airframe apart in
+    // the air; otherwise it burns and goes down, sometimes shedding a wing
+    const blast = source && source.type === 'missile' ? 0.45 : 0.2;
+    if (this.fm.onGround || Math.random() < blast) this.explode(battle, { air: !this.fm.onGround });
+    else if (battle && battle.wreckage && Math.random() < 0.45) {
+      const side = Math.random() < 0.5 ? 'L' : 'R';
+      if (battle.wreckage.breakUp(this, { only: 'wing' + side, impulse: 10 })) {
+        // asymmetric lift: it rolls hard towards the missing wing
+        this.spin = (side === 'L' ? -1 : 1) * (2.2 + Math.random());
+        battle.effects.explosion(this.position, 0.6);
+      }
+    }
   }
 
-  explode(battle) {
+  // Destroyed: fireball and break-up. Hitting the ground or the sea gives a
+  // fuel fireball (or a splash) with wreckage strewn along the impact path.
+  explode(battle, opts = {}) {
     if (!this.alive) return;
     this.alive = false;
+    if (battle) {
+      const map = battle.map;
+      const water = !!opts.water || (this.fm.crashed && map.heightAt(this.position.x, this.position.z) < map.waterLevel);
+      const ground = !opts.air && (this.fm.crashed || this.fm.onGround);
+      const scale = Math.min(3.2, Math.max(1.2, Math.sqrt(this.fm.mass / 9000)));
+      if (water) battle.effects.waterCrash(this.position, this.velocity, scale);
+      else if (ground) battle.effects.crashFireball(this.position, this.velocity, scale * 0.8);
+      else battle.effects.bigExplosion(this.position, this.velocity, scale);
+      this.wreckFocus = battle.wreckage ? battle.wreckage.breakUp(this, { ground, water, impulse: ground ? 10 : 18 }) : null;
+    }
     this.root.visible = false;
-    if (battle) battle.effects.bigExplosion(this.position, this.velocity, 1.6);
     this.detachTrails();
   }
 
@@ -154,9 +179,10 @@ export class Aircraft {
     if (this.fm.crashed) {
       if (!this.dying) battle.onAircraftCrashed(this, this.fm.crashReason);
       this.dying = true;
-      this.explode(battle);
+      this.explode(battle, { water: /sea|ditch/i.test(this.fm.crashReason || '') });
       return;
     }
+    this.bayTimer = Math.max(0, this.bayTimer - dt);
     this.syncVisual();
     const fm = this.fm;
     if (fm.events.length) this._drainEvents(battle);
@@ -166,7 +192,7 @@ export class Aircraft {
       lightGlow: battle.world ? battle.world.nightFactor : 0,
       // airliner speedbrakes in flight use the same panels as the ground spoilers
       spoilers: Math.max(fm.spoilers, this.model.airliner ? fm.airbrake : 0), airbrake: fm.airbrake,
-      reverser: fm.reverser.deploy, chute: fm.chute.inflate, chuteState: fm.chute.state,
+      reverser: fm.reverser.deploy, chute: fm.chute.inflate, chuteState: fm.chute.state, bay: this.bayTimer > 0,
     });
     // glowing-hot brakes smoke from the wheel wells
     if (fm.brakeTemp > 850 && fm.gearDown && battle.effects && this.mainWheelPoints.length) {
@@ -278,6 +304,7 @@ export class Aircraft {
     const w = this.spec.weapons;
     this.gunAmmo = w.gunAmmo;
     this.missiles = w.missiles;
+    this.bombs = w.bombs || 0;
     this.flares = w.flares;
     for (const s of this.model.missileSlots) {
       s.used = false;

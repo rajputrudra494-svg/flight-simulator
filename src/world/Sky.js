@@ -115,7 +115,7 @@ const fragmentShader = /* glsl */ `
 
     // sun disc (HDR so bloom catches it)
     float disc = smoothstep( 0.99985, 0.99993, cosTheta );
-    float halo = pow( max( cosTheta, 0.0 ), 800.0 ) * 0.6 + pow( max( cosTheta, 0.0 ), 60.0 ) * 0.08;
+    float halo = pow( max( cosTheta, 0.0 ), 800.0 ) * 0.45 + pow( max( cosTheta, 0.0 ), 60.0 ) * 0.06;
     col += ( disc * uSunDiscIntensity + halo ) * Fex * vec3( 1.0, 0.95, 0.85 );
 
     if ( uNight > 0.0 ) {
@@ -161,7 +161,7 @@ export class SkyDome extends THREE.Mesh {
         turbidity: { value: 2 },
         mieCoefficient: { value: 0.005 },
         mieDirectionalG: { value: 0.8 },
-        uSunDiscIntensity: { value: 40 },
+        uSunDiscIntensity: { value: 28 },
         uCirrus: { value: 0.6 },
         uTime: { value: 0 },
         uEnvMode: { value: 0 },

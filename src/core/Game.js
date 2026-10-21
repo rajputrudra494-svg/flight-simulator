@@ -5,6 +5,7 @@ import { installAtmosphere } from '../world/atmosphere.js';
 import { PRESETS, detectQuality, isMobileDevice } from './Quality.js';
 import { GameRenderer } from './Renderer.js';
 import { Input } from './Input.js';
+import { GyroControl } from './Gyro.js';
 import { AudioEngine } from './Audio.js';
 import { Radio } from './Radio.js';
 import { Save } from './Save.js';
@@ -24,6 +25,16 @@ import { JetModel } from '../aircraft/JetBuilder.js';
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
+// title screen camera: rear quarter, side profile, low front quarter, high
+// three-quarter (azimuth 0 = behind, pi = ahead; distance in aircraft lengths)
+const TITLE_SHOTS = [
+  { az: 0.55, el: 0.14, d: 2.0 },
+  { az: 1.55, el: 0.04, d: 1.75 },
+  { az: 2.5, el: -0.07, d: 1.9 },
+  { az: 1.15, el: 0.42, d: 2.3 },
+];
+const SHOT_TIME = 9;
+
 const TIPS = [
   'Keep your speed between 350 and 450 knots for the tightest sustained turns.',
   'SAM sites cannot see you below about 50 m or behind a mountain.',
@@ -36,12 +47,18 @@ const TIPS = [
   'Press Y to lock whatever you are looking at: works in padlock and free-look too.',
   'Break Mach 1 low over the sea for a sonic boom and a rooster tail of spray.',
   'Heavy jets need flaps (gear down) and patience: rotate at about 150 knots.',
-  'Press K to ride along with your next missile on the weapon camera.',
   'Fly low between the skyscrapers to stay under enemy radar in the city.',
   'Press M to talk to ATC: ask for take-off clearance, vectors to the ILS or a bogey dope from AWACS.',
   'Airliners: set the autobrake with U before landing and press J after touchdown for reverse thrust.',
   'Fighters with a drag chute (MiG-29, Su-35, Typhoon...) pop it with J on the landing roll.',
   'Brakes get hot: on a snowy or wet runway let the reversers and chute do more of the work.',
+  'Every aircraft is unlocked in Free Flight. The campaign still unlocks them for missions.',
+  'Remap any key, mouse button or gamepad button in Controls. Joysticks and HOTAS throttles work too.',
+  'Bombers: designate a ground target, fly towards it and release inside the range cue. The JDAM glides the rest of the way.',
+  'The SR-71 is held to 450 knots down low. Climb above 20 km before you light the burners and run for Mach 3.',
+  'The B-52 wing is set at +6 degrees: it lifts off almost flat and cruises nose-down.',
+  'On a phone, switch on tilt steering in Controls and tap TILT to recentre the neutral attitude.',
+  'Too much glare? Lower the scene brightness in Settings.',
 ];
 
 export class Game {
@@ -99,7 +116,7 @@ export class Game {
     this.targetCam = new TargetCam(this.renderer);
     this.hud = new HUD(this.dom.hud);
     this.input = new Input(this.dom.gl);
-    this._applyInputSettings();
+    this.gyro = new GyroControl(this.input);
     this.audio = new AudioEngine();
     this.audio.volume = this.settings.volume;
     this.audio.voice = this.settings.voice;
@@ -110,12 +127,29 @@ export class Game {
     this.menus = new Menus(this.dom.ui, this);
     this.touch = new TouchControls(this.dom.touchRoot, this.input);
     this.touch.show(false);
+    this.touch.onLayoutChange = (layout) => {
+      this.settings.touchLayout = JSON.parse(JSON.stringify(layout));
+      this.save.write();
+    };
+    this.touch.onGyroButton = () => {
+      if (!this.settings.gyro) return;
+      // first tap after a reload on iOS: ask for motion access
+      if (this.gyro.needsPermission && this.gyro.permission === 'unknown') this._enableGyro(true);
+      this.gyro.calibrate();
+      this.hud.showCenter('TILT CENTRED', 1);
+    };
+    this.touch.haptic = (ms) => this.haptic(ms);
+    this.touch.onEditDone = () => {
+      this.touch.show(this.state === 'playing' && this._touchWanted());
+      this.menus.show('controls', false);
+    };
+    this._applyInputSettings();
     window.addEventListener('resize', () => this._resize());
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'playing') this.pause();
     });
     window.addEventListener('keydown', (e) => {
-      if ((e.code === 'Escape' || e.code === 'KeyP') && this.state === 'paused' && this.menus.screen === 'pause') {
+      if ((e.code === 'Escape' || this.input.isBound('pause', e.code)) && this.state === 'paused' && this.menus.screen === 'pause') {
         e.preventDefault();
         this.resume();
       }
@@ -135,9 +169,60 @@ export class Game {
 
   _applyInputSettings() {
     const s = this.settings;
+    // tilt steering defaults to on for phones and tablets only
+    if (s.gyro === null || s.gyro === undefined) s.gyro = isMobileDevice() && this.gyro.available;
     this.input.settings.invertPitch = s.invertPitch;
     this.input.settings.mouseFlight = s.mouseFlight;
     this.input.settings.sensitivity = s.sensitivity;
+    this.input.setControls(s.controls);
+    this.gyro.sensitivity = s.gyroSensitivity;
+    this.gyro.invertPitch = s.gyroInvertPitch;
+    // listen straight away (Android delivers motion data without a prompt); iOS
+    // only starts sending it once a tap has granted access (see Menus / TILT)
+    this.gyro.setEnabled(!!s.gyro);
+    this.touch.setLayout(s.touchLayout);
+    this.touch.setGyro(s.gyro);
+  }
+
+  // tilt steering needs motion-sensor permission on iOS (asked from the tap that enabled it)
+  async _enableGyro(on) {
+    if (!on) {
+      this.gyro.setEnabled(false);
+      this.touch.setGyro(false);
+      return;
+    }
+    const ok = await this.gyro.requestPermission();
+    if (!ok || !this.gyro.available) {
+      this.settings.gyro = false;
+      this.save.write();
+      this.gyro.setEnabled(false);
+    } else {
+      this.gyro.setEnabled(true);
+      this.gyro.calibrate();
+    }
+    this.touch.setGyro(this.settings.gyro);
+    if (this.menus.screen === 'controls' || this.menus.screen === 'settings') this.menus.show(this.menus.screen, false);
+  }
+
+  haptic(pattern) {
+    if (!this.settings.haptics || !navigator.vibrate || !this._touchWanted()) return;
+    try {
+      navigator.vibrate(pattern);
+    } catch (e) {
+      /* not allowed */
+    }
+  }
+
+  // layout editor for the on-screen controls (opened from the Controls screen)
+  editTouchLayout() {
+    this.menus.hide();
+    this.touch.edit(true);
+  }
+
+  // scene exposure: the map / time-of-day value scaled by the player's brightness
+  _applyBrightness() {
+    if (!this.world) return;
+    this.renderer.toneMappingExposure = this.world.lighting.exposure * (this.settings.brightness ?? 0.8);
   }
 
   _syncRadioSettings() {
@@ -173,7 +258,9 @@ export class Game {
     if (key === 'volume') this.audio.setVolume(val);
     if (key === 'voice') this.audio.voice = val;
     if (['voice', 'atc', 'radioFx'].includes(key)) this._syncRadioSettings();
-    if (['invertPitch', 'mouseFlight', 'sensitivity'].includes(key)) this._applyInputSettings();
+    if (['invertPitch', 'mouseFlight', 'sensitivity', 'controls', 'gyroSensitivity', 'gyroInvertPitch'].includes(key)) this._applyInputSettings();
+    if (key === 'gyro') this._enableGyro(val);
+    if (key === 'brightness') this._applyBrightness();
     if (key === 'touchControls' && this.state === 'playing') this.touch.show(this._touchWanted());
     if (key === 'unlockAll' && this.menus.screen === 'settings') this.menus.show('settings', false);
   }
@@ -200,9 +287,10 @@ export class Game {
     this._setLoading(true, 'Building atmosphere…', 0.35);
     await nextFrame();
     world.build();
+    this.world = world;
+    this._applyBrightness();
     this.camera.far = this.quality.viewDistance * 1.6;
     this.camera.updateProjectionMatrix();
-    this.world = world;
     if (focus) {
       this.camera.position.copy(focus);
       this.camera.updateMatrixWorld();
@@ -265,24 +353,73 @@ export class Game {
     sc.root.rotation.z = bank + Math.sin(t * 0.7) * 0.03;
     sc.root.rotation.x = Math.sin(t * 0.4) * 0.02;
     sc.animate(dt, { pitch: Math.sin(t * 0.5) * 0.1, roll: 0, yaw: 0, throttle: 0.8, ab: hangar ? 0 : 0.6 + 0.4 * Math.sin(t * 0.25) ** 2, gear: false });
-    const len = sc.length;
-    const orbitA = t * (hangar ? 0.25 : 0.12) + 0.6;
-    const dist = hangar ? len * 1.35 + 6 : len * 2.1 + 12;
-    const up = hangar ? 0.22 : 0.18 + Math.sin(t * 0.17) * 0.12;
+    // frame by the bigger of length and span (flying wings are 2.5x wider than long)
+    const len = Math.max(sc.length, sc.span * 0.8);
+    let orbitA, dist, up;
+    if (hangar) {
+      orbitA = t * 0.25 + 0.6;
+      dist = len * 1.35 + 6;
+      up = 0.22;
+    } else {
+      // title: a slow sequence of cinematic shots that blend into one another
+      const k = Math.floor(t / SHOT_TIME);
+      const a = TITLE_SHOTS[k % TITLE_SHOTS.length], b = TITLE_SHOTS[(k + 1) % TITLE_SHOTS.length];
+      const f = THREE.MathUtils.smoothstep((t % SHOT_TIME) / SHOT_TIME, 0.62, 1);
+      orbitA = a.az + (b.az - a.az) * f + Math.sin(t * 0.09) * 0.12;
+      up = a.el + (b.el - a.el) * f + Math.sin(t * 0.17) * 0.04;
+      dist = (len * (a.d + (b.d - a.d) * f) + 10);
+    }
     const local = new THREE.Vector3(Math.sin(orbitA) * dist, Math.sin(up) * dist, Math.cos(orbitA) * dist);
     local.applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, heading, 0)));
-    this.camera.position.copy(pos).add(local);
-    this.camera.up.set(0, 1, 0);
+    const cam = this.camera;
+    cam.position.copy(pos).add(local);
+    cam.up.set(0, 1, 0);
     const look = pos.clone();
     if (hangar) look.add(new THREE.Vector3(Math.cos(orbitA) * len * 0.25, 0, 0));
-    this.camera.lookAt(look);
-    if (this.camera.fov !== 50 || this.camera.near !== 0.5) {
-      this.camera.fov = 50;
-      this.camera.near = 0.5;
-      this.camera.updateProjectionMatrix();
+    else if (window.innerWidth > window.innerHeight * 1.2 && window.innerWidth > 760) {
+      // wide screens: hold the aircraft in the right half, clear of the menu
+      const right = new THREE.Vector3().subVectors(pos, cam.position).normalize().cross(cam.up).normalize();
+      look.addScaledVector(right, -dist * 0.3);
     }
-    this.camera.updateMatrixWorld();
+    cam.lookAt(look);
+    if (cam.fov !== 50 || cam.near !== 0.5) {
+      cam.fov = 50;
+      cam.near = 0.5;
+      cam.updateProjectionMatrix();
+    }
+    cam.updateMatrixWorld();
     this.menuFocus = pos;
+    this._titleReticle(sc, pos, t);
+  }
+
+  // target box that tracks the showcase aircraft on the title screen
+  _titleReticle(sc, pos, t) {
+    const el = this.menuScreen === 'title' ? document.getElementById('ts-reticle') : null;
+    if (!el) return;
+    const cam = this.camera;
+    const p = pos.clone().project(cam);
+    const w = window.innerWidth, h = window.innerHeight;
+    if (p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1) {
+      el.classList.remove('on');
+      return;
+    }
+    // apparent size from the aircraft's bounding radius at its distance
+    const d = cam.position.distanceTo(pos);
+    const px = (sc.radius / (d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2))) * (h / 2);
+    const bw = Math.max(70, px * 2.1), bh = Math.max(46, px * 1.15);
+    const x = (p.x * 0.5 + 0.5) * w - bw / 2, y = (-p.y * 0.5 + 0.5) * h - bh / 2;
+    el.style.width = `${bw.toFixed(0)}px`;
+    el.style.height = `${bh.toFixed(0)}px`;
+    el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+    el.classList.add('on');
+    // live readout like a targeting pod: speed, altitude, range
+    if (!this._retT || t - this._retT > 0.25) {
+      this._retT = t;
+      const data = document.getElementById('ts-ret-data');
+      const spec = sc.spec;
+      const kts = Math.round((spec.civil ? 250 : 420) + Math.sin(t * 0.21) * 12);
+      if (data) data.textContent = `${kts} KT  ${Math.round(pos.y * 3.281)} FT  RNG ${(d / 1852).toFixed(2)} NM`;
+    }
   }
 
   // ---------------------------------------------------------------- missions
@@ -321,12 +458,17 @@ export class Game {
       this.damageFlash = Math.min(1, this.damageFlash + amt / 40);
       this.rig.shake = Math.max(this.rig.shake, 0.6);
       this.atc?.onPlayerHit(amt);
+      this.haptic(Math.min(140, 30 + amt * 2));
     });
+    battle.on('aircraftKilled', (ac) => { if (ac.isPlayer) this.haptic([90, 50, 160]); });
     battle.on('missileLaunched', (m) => this.atc?.onMissileLaunched(m));
     battle.on('playerLocked', (by, t) => this.atc?.onLocked(by, t));
     battle.on('aircraftEvent', (ac, ev) => this._onAircraftEvent(ac, ev));
     battle.on('aircraftCrashed', (ac) => {
-      if (ac.isPlayer) this.hud.showCenter(ac.fm.crashReason || 'CRASHED', 3);
+      if (ac.isPlayer) {
+        this.hud.showCenter(ac.fm.crashReason || 'CRASHED', 3);
+        this.haptic([140, 60, 260]);
+      }
     });
     battle.on('sonicBoom', (ac) => {
       if (ac.isPlayer) {
@@ -351,6 +493,9 @@ export class Game {
     this.flareProgram = 0;
     this.touch.show(this._touchWanted());
     this.input.pressed.clear();
+    this.gyro.calibrate();
+    if (this._touchWanted() && window.innerHeight > window.innerWidth) this.hud.showFlash('TURN YOUR DEVICE SIDEWAYS', 3);
+    else if (this._touchWanted() && this.settings.gyro && !this.gyro.lastEvent) this.hud.showFlash('TAP TILT TO START TILT STEERING', 3);
     this.state = 'playing';
     this.hud.showCenter(free ? 'FREE FLIGHT' : def.name.toUpperCase(), 3);
     this.atc.start();
@@ -548,6 +693,7 @@ export class Game {
   }
 
   _updatePlaying(dt) {
+    this.gyro.update(dt);
     const input = this.input.update(dt);
     const battle = this.battle;
     const mission = this.mission;
@@ -583,25 +729,25 @@ export class Game {
         this.hud.showCenter(c.gear ? 'GEAR DOWN' : 'GEAR UP', 1.2);
       }
       if (input.missile) {
-        if (p.civil) this.hud.showCenter('UNARMED AIRCRAFT', 1);
-        else if (p.missiles <= 0) this.hud.showCenter('NO MISSILES', 1);
+        if (p.civil || p.unarmed) this.hud.showCenter('UNARMED AIRCRAFT', 1);
+        else if (this.targeting.weaponMode === 'bomb') {
+          if (p.bombs <= 0) this.hud.showCenter('NO BOMBS', 1);
+          else if (p.missileCooldown <= 0) {
+            const guided = this.targeting.fire();
+            this.hud.showCenter(guided ? 'BOMB AWAY - GUIDED' : 'BOMB AWAY - BALLISTIC', 1);
+            this.haptic(20);
+          }
+        } else if (p.missiles <= 0) this.hud.showCenter('NO MISSILES', 1);
         else if (p.missileCooldown <= 0) {
           const locked = this.targeting.fire();
           const call = this.targeting.missileType === 'radar' ? 'FOX 3!' : 'FOX 2!';
           this.hud.showCenter(locked ? call : 'NO LOCK - UNGUIDED', 1);
           if (locked) this.atc?.onFox(this.targeting.missileType);
-          if (this.settings.weaponCam && this.targeting.lastMissile) this.rig.followWeapon(this.targeting.lastMissile);
+          this.haptic(30);
         }
       }
       if (input.lockView && !p.civil) {
         if (this.targeting.selectInView(this.camera)) this.hud.showCenter('TARGET DESIGNATED', 0.8);
-      }
-      if (input.weaponCam) {
-        this.settings.weaponCam = !this.settings.weaponCam;
-        this.save.write();
-        this.hud.showCenter(this.settings.weaponCam ? 'WEAPON CAM ON' : 'WEAPON CAM OFF', 1.2);
-        const m = this.targeting.lastMissile;
-        if (this.settings.weaponCam && m && m.alive) this.rig.followWeapon(m);
       }
       if (input.flare && p.flares > 0) this.flareProgram = 3;
       c.flare = false;
@@ -627,6 +773,8 @@ export class Game {
     mission.update(dt);
     if (this.state !== 'playing') return;
     this.atc?.update(dt);
+    // destroyed: cut to the crash camera over the wreckage
+    if (p && !p.alive && this.rig.mode !== 'crash' && battle.player === p) this.rig.crashView(p.wreckFocus || p.position.clone());
 
     // camera + world
     const shake = this.settings.cameraShake ? battle.effects.shake : 0;
@@ -678,12 +826,11 @@ export class Game {
       });
     }
     this._render(dt);
-    if (tc.active && !cockpit && this.rig.mode !== 'weapon') {
+    if (tc.active && !cockpit) {
       const w = Math.round(Math.min(300, window.innerWidth * 0.22)), h = Math.round(w * 0.75);
       tc.present({ x: window.innerWidth - w - 18, y: 70, w, h });
     } else tc.rect = null;
-    const wc = this.rig.mode === 'weapon' && this.rig.weapon ? (this.rig.weapon.alive ? `${Math.round(this.rig.weapon.vel.length() * 1.944)} KT` : 'IMPACT') : null;
-    this.hud.draw(dt, { camera: this.camera, battle, mission, targeting: this.targeting, cameraMode: this.rig.mode, settings: this.settings, targetCam: tc.rect ? tc : null, weaponCam: wc, radio: this.radio, atcMenu: this.atcMenu });
+    this.hud.draw(dt, { camera: this.camera, battle, mission, targeting: this.targeting, cameraMode: this.rig.mode, settings: this.settings, targetCam: tc.rect ? tc : null, radio: this.radio, atcMenu: this.atcMenu });
     if (p && p.alive) {
       this.audio.updateWarnings({ seeker: this.targeting.seeker, ...this.hud.warnings }, dt);
       if (this.hud.warnings.pullup) this.radio.warn('Pull up, pull up', 'pullup', 3);

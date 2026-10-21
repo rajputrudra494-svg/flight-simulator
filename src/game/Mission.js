@@ -230,11 +230,21 @@ export class Mission {
       ctx.enemyAir(jets[i % jets.length], p, rand() * 360, { skill: 0.3 + rand() * 0.4 });
     }
     if (o.ground) {
+      // ground targets go on dry land (island maps are mostly sea)
+      const landNear = (dist) => {
+        for (let k = 0; k < 60; k++) {
+          const a = rand() * Math.PI * 2, d = dist * (0.5 + rand() * 0.9);
+          const x = ab.x + Math.cos(a) * d, z = ab.z + Math.sin(a) * d;
+          if (map.heightAt(x, z) > map.waterLevel + 12) return { x, z };
+        }
+        return null;
+      };
       for (let i = 0; i < 2; i++) {
-        const a = rand() * Math.PI * 2;
-        ctx.samSite(ab.x + Math.cos(a) * 9000, ab.z + Math.sin(a) * 9000);
+        const s = landNear(9000) || landNear(4500);
+        if (s) ctx.samSite(s.x, s.z);
       }
-      ctx.convoy(ab.x + 6000, ab.z + 5000, 30, 5);
+      const c = landNear(7000) || landNear(3500);
+      if (c) ctx.convoy(c.x, c.z, 30, 5);
     }
     if (o.rings) ctx.rings(this._freeRings(), { radius: 55 });
     const traffic = o.traffic === 'heavy' ? 10 : o.traffic === 'light' ? 4 : 0;

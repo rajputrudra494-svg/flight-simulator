@@ -171,7 +171,11 @@ export function getParticleAtlas() {
       }
     }
     ctx.putImageData(img, 0, 0);
-    return canvasTexture(canvas, { srgb: false });
+    const tex = canvasTexture(canvas, { srgb: false });
+    // the particle shader indexes cells from the top-left (cell 0 smoke, 1 fire,
+    // 2 glow, 3 ring): keep the canvas rows in that order on the GPU
+    tex.flipY = false;
+    return tex;
   });
 }
 

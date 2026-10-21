@@ -380,4 +380,53 @@ AIRLINERS.an124 = {
   },
 };
 
-export const AIRLINER_ORDER = ['a320', 'b737', 'b777', 'b747', 'a380', 'concorde', 'an124'];
+// Boeing 787-9 Dreamliner: 62.8 m long, 60.1 m span, 360 m2 composite wing
+// with raked tips (no winglets) that flexes up in flight, two GEnx-1B of 340 kN.
+AIRLINERS.b787 = {
+  id: 'b787',
+  name: 'Boeing 787-9 Dreamliner',
+  role: 'Long-haul twin',
+  category: 'airliner',
+  civil: true,
+  description: 'Carbon-fibre fuselage, huge dimmable windows and a long, flexible wing with raked tips that curls up under load. Two GEnx turbofans with serrated nacelles carry it 14,000 km at Mach 0.85.',
+  unlock: 0,
+  stats: { speed: 0.44, agility: 0.2, firepower: 0, armor: 0.75 },
+  flight: {
+    brakes: { mu: 0.46, heatCap: 4.8, autobrake: true, spoilers: true, reverser: 0.3 },
+    mass: 190000, wingArea: 360, thrustDry: 680, thrustAB: 680, noAB: true, cd0: 0.019, k: 0.038,
+    clAlpha: 5.5, maxAoA: 15, maxG: 2.5, pitchRate: 7.5, rollRate: 34, yawRate: 5, maxMach: 0.9, waveDrag: 3, flapCL: 0.6,
+  },
+  weapons: { gunAmmo: 0, missiles: 0, flares: 0, gunRate: 1, gunDamage: 0 },
+  health: 260,
+  livery: { type: 'airline', airline: 'NORDIC BLUE', top: '#f6f7f9', belly: '#e7ecf1', stripe: '#0d3b78', stripe2: '#4fa3e0', tail: '#0d3b78', tailAccent: '#4fa3e0', logo: 'globe', engine: '#f2f4f6', seed: 263 },
+  insignia: null, tailCode: '',
+  design: {
+    type: 'airliner',
+    length: 62.8, cg: 29.0,
+    fuselage: [
+      ...BLUNT_NOSE(7.2, 2.9, 3.0, 2.9, -0.7),
+      S(50.0, 2.9, 3.0, 2.9, 0), S(54.5, 2.55, 2.85, 2.2, 0.5), S(59.0, 1.6, 2.1, 1.1, 1.35),
+      S(61.8, 0.6, 0.95, 0.35, 2.05), S(62.8, 0.2, 0.3, 0.1, 2.3),
+    ],
+    windows: [{ y: 0.55, z0: 8.5, z1: 51.5, pitch: 0.53, w: 0.29, h: 0.47 }],
+    doors: [7.6, 18.5, 33.0, 52.5],
+    cockpit: { z0: 3.3, z1: 6.2, y0: 0.7, y1: 1.6 },
+    wing: {
+      stations: [W(2.9, -2.0, 23.0, 12.0, 0.12), W(9.8, -1.6, 28.5, 7.4, 0.11), W(30.05, 1.4, 42.2, 1.8, 0.09)],
+      aileron: [0.74, 0.96, 0.78], flap: [0.06, 0.7, 0.72],
+    },
+    winglets: [],
+    stab: { stations: [W(1.6, 1.3, 51.5, 6.0, 0.04), W(9.6, 2.1, 57.8, 2.2, 0.035)], elevator: [0.05, 0.95, 0.7] },
+    vtails: [{ x: 0, cant: 0, stations: [W(0, 2.8, 47.5, 10.2, 0.05), W(0, 13.6, 58.6, 3.6, 0.05)], rudder: [0.05, 0.95, 0.68] }],
+    ventrals: [],
+    nozzles: [],
+    pods: [{ x: 9.9, y: -2.85, z: 18.6, r: 1.55, len: 7.0, pylon: { x: 9.9, y: -1.55 } }],
+    pylons: [],
+    gear: { nose: { z: 6.6, y: -2.45, len: 2.0, r: 0.6, twin: true }, main: { z: 31.5, x: 4.9, y: -2.3, len: 2.2, r: 0.62, axles: 2 } },
+    pilotEye: { x: -0.6, y: 1.3, z: 4.6 },
+    gun: { x: 0, y: 0, z: 0 },
+    lights: { wingtip: 30.05, tail: [0, 2.3, 62.6], beacons: [[0, 3.0, 25.0], [0, -2.95, 33.0]] },
+  },
+};
+
+export const AIRLINER_ORDER = ['a320', 'b737', 'b787', 'b777', 'b747', 'a380', 'concorde', 'an124'];

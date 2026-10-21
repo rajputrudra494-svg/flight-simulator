@@ -1,4 +1,4 @@
-// Player target selection and missile lock-on logic.
+// Player target selection, missile lock-on and bomb release logic.
 // Lock assist (default on) makes locking quick and forgiving: the radar
 // prefers whatever is closest to the nose, switches to a bandit you point at,
 // the seeker acquires faster through a wider cone and, once locked, holds the
@@ -18,6 +18,8 @@ export class Targeting {
     this.locked = false;
     this.lockTime = 1.2;
     this.missileType = 'ir';
+    // 'missile' or 'bomb': bombers (and anything carrying bombs at a ground target)
+    this.weaponMode = 'missile';
     this.inCone = false;
     this.seeker = 'none';
     this.retarget = 0;
@@ -134,6 +136,11 @@ export class Targeting {
     }
     const t = this.target;
     this.inCone = false;
+    this.weaponMode = p.bombs > 0 && (p.missiles <= 0 || (t && t.kind !== 'air')) ? 'bomb' : 'missile';
+    if (this.weaponMode === 'bomb') {
+      this._updateBomb(dt, p, t);
+      return;
+    }
     if (t && p.missiles > 0) {
       const dist = t.position.distanceTo(p.position);
       this.missileType = t.kind === 'air' && dist > MISSILE_TYPES.ir.range * 0.9 ? 'radar' : 'ir';
@@ -156,8 +163,40 @@ export class Targeting {
     this.seeker = this.locked ? 'lock' : this.inCone || (t && p.missiles > 0 && this.lock > 0) ? 'search' : 'none';
   }
 
+  // how far ahead a guided bomb released now can glide (metres, horizontal)
+  bombReach(p, t) {
+    const h = Math.max(30, p.position.y - (t ? t.position.y : p.position.y - 1000));
+    const vh = Math.hypot(p.velocity.x, p.velocity.z);
+    const fall = Math.sqrt((2 * h) / 9.81);
+    return vh * fall * 1.7 + h * 0.6 + 300;
+  }
+
+  // bomb mode: the target is "locked" once its coordinates are loaded and it is
+  // inside the release envelope (ahead, below, within glide reach)
+  _updateBomb(dt, p, t) {
+    this.missileType = 'bomb';
+    this.lockTime = 0.5;
+    let ok = false;
+    if (t && t.kind !== 'air' && p.bombs > 0) {
+      _v.subVectors(t.position, p.position);
+      const dh = Math.hypot(_v.x, _v.z);
+      const vh = Math.hypot(p.velocity.x, p.velocity.z) || 1;
+      const ahead = (_v.x * p.velocity.x + _v.z * p.velocity.z) / (dh * vh || 1);
+      this.reach = this.bombReach(p, t);
+      ok = dh < this.reach && (ahead > 0.5 || dh < 400) && _v.y < -40;
+    }
+    this.inCone = ok;
+    const was = this.locked;
+    this.lock = ok ? Math.min(this.lockTime, this.lock + dt) : Math.max(0, this.lock - dt * 2);
+    this.locked = this.lock >= this.lockTime;
+    if (this.locked && !was) this.newLock = true;
+    this.lockedTime = this.locked ? this.lockedTime + dt : 0;
+    this.seeker = 'none';
+  }
+
   // in range for a good shot: inside ~70 % of the missile's reach
   get shoot() {
+    if (this.weaponMode === 'bomb') return this.locked;
     const p = this.battle.player;
     if (!this.locked || !this.target || !p) return false;
     return this.target.position.distanceTo(p.position) < MISSILE_TYPES[this.missileType].range * 0.7;
@@ -166,6 +205,15 @@ export class Targeting {
   fire() {
     const b = this.battle;
     const p = b.player;
+    if (this.weaponMode === 'bomb') {
+      if (!p || !p.alive || p.dying || p.bombs <= 0 || p.missileCooldown > 0) return false;
+      const tgt = this.locked ? this.target : null;
+      b.weapons.dropBomb(p, tgt);
+      p.bombs--;
+      // ripple release interval
+      p.missileCooldown = 0.3;
+      return !!tgt;
+    }
     if (!p || !p.alive || p.dying || p.missiles <= 0 || p.missileCooldown > 0) return false;
     const tgt = this.locked ? this.target : null;
     const m = b.weapons.launchMissile(p, tgt, this.missileType);

@@ -1,9 +1,20 @@
 // DOM menus: title, campaign, briefing, free flight, hangar, settings,
 // controls, pause and results screens.
 import { MISSIONS } from '../game/missions.js';
-import { JETS, MILITARY_ORDER, AIRLINER_ORDER } from '../aircraft/jets.js';
+import { JETS, MILITARY_ORDER, HEAVY_ORDER, AIRLINER_ORDER } from '../aircraft/jets.js';
 import { MAPS, MAP_ORDER } from '../world/maps.js';
 import { PRESETS, QUALITY_ORDER } from '../core/Quality.js';
+import { ControlsScreen } from './ControlsScreen.js';
+
+// line icons for the title menu (24 x 24, stroke = currentColor)
+const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICONS = {
+  medal: svg('<path d="M8 3h8l-2 6h-4z"/><circle cx="12" cy="15" r="5.5"/><path d="M12 12.4l.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2-1.45-1.4 2-.3z"/>'),
+  jet: svg('<path d="M12 2.5l1.6 5.5 7.4 4v1.8l-7.4-1.6-.6 5.3 2.6 2v1.5L12 20l-3.6 1v-1.5l2.6-2-.6-5.3L3 13.8V12l7.4-4z"/>'),
+  hangar: svg('<path d="M2.5 20.5V10L12 4l9.5 6v10.5"/><path d="M6.5 20.5v-6h11v6"/><path d="M9 17h6"/>'),
+  pad: svg('<path d="M7 7h10a4.5 4.5 0 0 1 4.4 5.4l-1 4.6a2.6 2.6 0 0 1-4.5 1.2L14 16h-4l-1.9 2.2A2.6 2.6 0 0 1 3.6 17l-1-4.6A4.5 4.5 0 0 1 7 7z"/><path d="M7.5 10.5v3M6 12h3"/><circle cx="15.5" cy="11" r=".6"/><circle cx="17.5" cy="13" r=".6"/>'),
+  gear: svg('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/><circle cx="12" cy="12" r="6.6"/>'),
+};
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const stars = (n, max = 3) => Array.from({ length: max }, (_, i) => `<span class="star ${i < n ? 'on' : ''}">★</span>`).join('');
@@ -22,8 +33,14 @@ const MAP_GRADIENTS = {
 function allowedJets(m) {
   if (m.aircraft === 'cargo') return [m.forceJet || 'an124'];
   if (m.aircraft === 'civil') return AIRLINER_ORDER.filter((id) => JETS[id].category !== 'cargo');
-  return MILITARY_ORDER;
+  return [...MILITARY_ORDER, ...HEAVY_ORDER];
 }
+
+const JET_TABS = [
+  ['military', 'Fighters & attack', () => MILITARY_ORDER],
+  ['heavy', 'Bombers & special', () => HEAVY_ORDER],
+  ['civil', 'Airliners & cargo', () => AIRLINER_ORDER],
+];
 
 export class Menus {
   constructor(root, game) {
@@ -34,6 +51,7 @@ export class Menus {
     this.selectedMission = 0;
     this.free = { map: 'pacific', time: 'default', enemies: 'none', ground: false, rings: true, start: 'air', traffic: 'light' };
     this.jetTab = 'military';
+    this.controlsScreen = new ControlsScreen(this);
     root.addEventListener('click', (e) => this._onClick(e));
     root.addEventListener('input', (e) => this._onInput(e));
     root.addEventListener('change', (e) => this._onInput(e));
@@ -45,15 +63,25 @@ export class Menus {
 
   show(screen, push = true) {
     if (push && this.screen && this.screen !== screen) this.history.push(this.screen);
+    if (this.screen === 'controls' && screen !== 'controls') this.controlsScreen.leave();
+    // re-rendering the same screen keeps its scroll position
+    const same = this.screen === screen;
+    const scroller = same ? this.root.querySelector('.panel') : null;
+    const scroll = scroller ? scroller.scrollTop : 0;
     this.screen = screen;
     const fn = this['_' + screen];
     this.root.innerHTML = fn ? fn.call(this) : '';
+    if (scroll) {
+      const p = this.root.querySelector('.panel');
+      if (p) p.scrollTop = scroll;
+    }
     this.root.style.display = screen ? 'flex' : 'none';
     this.root.className = 'ui screen-' + screen;
     this.game.onMenuScreen(screen);
   }
 
   hide() {
+    if (this.screen === 'controls') this.controlsScreen.leave();
     this.screen = null;
     this.root.innerHTML = '';
     this.root.style.display = 'none';
@@ -70,6 +98,10 @@ export class Menus {
     if (!el) return;
     this.game.audio.init();
     this.game.audio.click();
+    // iOS only grants motion access from a tap: ask on the first one in the menus
+    const g = this.game;
+    if (g.settings.gyro && g.gyro.needsPermission && g.gyro.permission === 'unknown') g._enableGyro(true);
+    if (this.screen === 'controls' && this.controlsScreen.onClick(el)) return;
     const a = el.dataset.action;
     const v = el.dataset.value;
     switch (a) {
@@ -88,7 +120,8 @@ export class Menus {
         break;
       case 'jet': {
         const jet = JETS[v];
-        if (!this.save.isJetUnlocked(jet)) return;
+        // free flight flies anything; the hangar shows anything; missions need the unlock
+        if (this.screen === 'briefing' && !this.save.isJetUnlocked(jet)) return;
         this.save.data.jet = v;
         this.save.write();
         this.game.onJetSelected(v);
@@ -101,6 +134,18 @@ export class Menus {
         break;
       }
       case 'launch-free': this.game.startFree({ ...this.free }, this.save.data.jet); break;
+      // straight into the air over the current free-flight theatre
+      case 'quick-flight': this.game.startFree({ ...this.free, start: 'air' }, this.save.data.jet); break;
+      case 'title-jet': {
+        const ids = [...MILITARY_ORDER, ...HEAVY_ORDER, ...AIRLINER_ORDER];
+        const i = ids.indexOf(this.save.data.jet);
+        const id = ids[(i + Number(v) + ids.length) % ids.length];
+        this.save.data.jet = id;
+        this.save.write();
+        this.game.onJetSelected(id);
+        this.show('title', false);
+        break;
+      }
       case 'free-map': this.free.map = v; this.game.onFreeMapPreview?.(v); this.show('free', false); break;
       case 'resume': this.game.resume(); break;
       case 'restart': this.game.restart(); break;
@@ -110,8 +155,11 @@ export class Menus {
         if (confirm('Reset all campaign progress?')) { this.save.reset(); this.show('settings', false); }
         break;
       case 'fullscreen':
-        if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
-        else document.exitFullscreen?.();
+        if (!document.fullscreenElement) {
+          const p = document.documentElement.requestFullscreen?.();
+          // phones: hold landscape while fullscreen (where the browser allows it)
+          if (p && p.then) p.then(() => screen.orientation?.lock?.('landscape')?.catch?.(() => {})).catch(() => {});
+        } else document.exitFullscreen?.();
         break;
       default: break;
     }
@@ -119,6 +167,7 @@ export class Menus {
 
   _onInput(e) {
     const el = e.target;
+    if (this.screen === 'controls' && this.controlsScreen.onInput(el)) return;
     const key = el.dataset.setting;
     if (key) {
       let val;
@@ -129,7 +178,7 @@ export class Menus {
       this.game.applySetting(key, val);
       if (el.type === 'range') {
         const out = el.parentElement.querySelector('output');
-        if (out) out.textContent = key === 'volume' ? `${Math.round(val * 100)}%` : val.toFixed(1);
+        if (out) out.textContent = key === 'volume' || key === 'brightness' ? `${Math.round(val * 100)}%` : val.toFixed(1);
       }
       return;
     }
@@ -140,26 +189,59 @@ export class Menus {
   }
 
   // ---------------------------------------------------------------- screens
+  // Title: logo, quick flight, the main menu with live info, and a featured
+  // aircraft card that browses the whole hangar on the 3D showcase.
   _title() {
     const done = this.save.completedCount();
+    const total = MISSIONS.length;
+    const nJets = MILITARY_ORDER.length + HEAVY_ORDER.length + AIRLINER_ORDER.length;
+    const jet = JETS[this.save.data.jet] || JETS.f16;
+    const ids = [...MILITARY_ORDER, ...HEAVY_ORDER, ...AIRLINER_ORDER];
+    const f = jet.flight;
+    const span = jet.design.wing.stations[jet.design.wing.stations.length - 1].x * 2;
+    const anim = this._titleShown ? 'no-anim' : '';
+    this._titleShown = true;
+    const item = (value, icon, label, sub, extra = '') => `
+        <button data-action="nav" data-value="${value}"><span class="ic">${ICONS[icon]}</span><span class="tx"><b>${label}</b><small>${sub}</small></span>${extra}<span class="go">›</span></button>`;
     return `
-    <div class="title-wrap">
-      <div class="logo">
-        <div class="logo-top">STRIKE</div>
-        <div class="logo-bottom">HORIZON</div>
-        <div class="logo-sub">COMBAT FLIGHT SIMULATOR</div>
+    <div class="title-screen ${anim}">
+      <div class="ts-frame"><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i></div>
+      <div class="ts-left">
+        <div class="logo">
+          <div class="logo-kicker"><span></span>COMBAT FLIGHT SIMULATOR</div>
+          <div class="logo-top">STRIKE</div>
+          <div class="logo-bottom">HORIZON</div>
+        </div>
+        <button class="ts-play" data-action="quick-flight"><span class="play-ic">▶</span><span class="tx"><b>Quick flight</b><small>Take off now in the ${esc(jet.name)}</small></span></button>
+        <nav class="ts-menu">
+          ${item('campaign', 'medal', 'Campaign', `${total} missions · ${done} complete`, `<span class="prog"><i style="width:${Math.round((done / total) * 100)}%"></i></span>`)}
+          ${item('free', 'jet', 'Free flight', `All ${nJets} aircraft unlocked · 7 theatres`)}
+          ${item('hangar', 'hangar', 'Hangar', `${nJets} aircraft · specs &amp; history`)}
+          ${item('controls', 'pad', 'Controls', 'Custom keys · gamepad · touch &amp; tilt')}
+          ${item('settings', 'gear', 'Settings', 'Graphics · audio · gameplay')}
+        </nav>
+        <div class="ts-foot">
+          <span class="chip">${esc(PRESETS[this.game.qualityKey].label)} graphics</span>
+          <button class="link" data-action="fullscreen">⛶ Fullscreen</button>
+        </div>
       </div>
-      <nav class="main-menu">
-        <button data-action="nav" data-value="campaign" class="primary">Campaign <small>${done}/${MISSIONS.length}</small></button>
-        <button data-action="nav" data-value="free">Free Flight</button>
-        <button data-action="nav" data-value="hangar">Hangar</button>
-        <button data-action="nav" data-value="settings">Settings</button>
-        <button data-action="nav" data-value="controls">Controls</button>
-      </nav>
-      <div class="title-foot">
-        <span>Graphics: ${esc(PRESETS[this.game.qualityKey].label)}${this.game.settings.quality === 'auto' ? ' (auto)' : ''}</span>
-        <button class="link" data-action="fullscreen">⛶ Fullscreen</button>
-      </div>
+      <div class="ts-reticle" id="ts-reticle"><i class="r tl"></i><i class="r tr"></i><i class="r bl"></i><i class="r br"></i><span class="ret-label">${esc(jet.name.toUpperCase())}</span><span class="ret-data" id="ts-ret-data"></span></div>
+      <aside class="ts-card">
+        <div class="tc-head"><span class="tc-tag">Featured aircraft</span><span class="tc-count">${ids.indexOf(jet.id) + 1} / ${ids.length}</span></div>
+        <div class="tc-name">${esc(jet.name)}</div>
+        <div class="tc-role">${esc(jet.role)}</div>
+        <div class="tc-specs">
+          <div><b>M ${f.maxMach}</b><small>Top speed</small></div>
+          <div><b>${span.toFixed(1)} m</b><small>Span</small></div>
+          <div><b>${f.maxG} G</b><small>Max load</small></div>
+          <div><b>${((f.thrustAB * 1000) / (f.mass * 9.81)).toFixed(2)}</b><small>Thrust / wt</small></div>
+        </div>
+        <div class="tc-nav">
+          <button data-action="title-jet" data-value="-1" aria-label="Previous aircraft">‹</button>
+          <button class="tc-fly" data-action="quick-flight">Fly it ▸</button>
+          <button data-action="title-jet" data-value="1" aria-label="Next aircraft">›</button>
+        </div>
+      </aside>
     </div>`;
   }
 
@@ -204,20 +286,28 @@ export class Menus {
     return allowed.find((id) => this.save.isJetUnlocked(JETS[id])) || allowed[0];
   }
 
-  _jetPicker(allowed = null) {
+  // allowed: fixed list for a mission briefing; otherwise tabs over the whole hangar.
+  // free: free flight, where every aircraft is unlocked
+  _jetPicker(allowed = null, free = false) {
     const tabs = !allowed;
-    const ids = allowed || (this.jetTab === 'civil' ? AIRLINER_ORDER : MILITARY_ORDER);
+    const tab = JET_TABS.find((t) => t[0] === this.jetTab) || JET_TABS[0];
+    const ids = allowed || tab[2]();
     const cur = this.save.data.jet;
     const current = allowed ? (allowed.includes(cur) && this.save.isJetUnlocked(JETS[cur]) ? cur : allowed.find((id) => this.save.isJetUnlocked(JETS[id])) || allowed[0]) : cur;
     const tabHtml = tabs
-      ? `<div class="jet-tabs"><button class="${this.jetTab === 'military' ? 'on' : ''}" data-action="jet-tab" data-value="military">Military jets <small>${MILITARY_ORDER.length}</small></button><button class="${this.jetTab === 'civil' ? 'on' : ''}" data-action="jet-tab" data-value="civil">Airliners &amp; cargo <small>${AIRLINER_ORDER.length}</small></button></div>`
+      ? `<div class="jet-tabs">${JET_TABS.map(([id, label, list]) => `<button class="${this.jetTab === id ? 'on' : ''}" data-action="jet-tab" data-value="${id}">${esc(label)} <small>${list().length}</small></button>`).join('')}</div>`
       : '';
+    const hangar = this.screen === 'hangar';
     return `${tabHtml}<div class="jet-picker">${ids.map((id) => {
       const j = JETS[id];
-      const unlocked = this.save.isJetUnlocked(j);
+      const campaign = this.save.isJetUnlocked(j);
+      const unlocked = free || campaign;
       const sel = (allowed ? current : this.save.data.jet) === id;
-      return `<button class="jet-chip ${sel ? 'sel' : ''} ${unlocked ? '' : 'locked'} ${j.exclusive ? 'special' : ''}" data-action="jet" data-value="${id}" title="${unlocked ? '' : esc(this._lockText(j))}">
-        <span class="jc-name">${esc(j.name)}</span><span class="jc-role">${unlocked ? esc(j.role) : `🔒 ${esc(j.requires ? 'Special: ' + j.requires.length + ' set missions' : j.unlock + ' missions')}`}</span></button>`;
+      const lockTxt = j.requires ? 'Special: ' + j.requires.length + ' set missions' : j.unlock + ' missions';
+      // the hangar shows everything, with the campaign lock as a note
+      const role = unlocked ? esc(j.role) : hangar ? `${esc(j.role)} · 🔒 campaign` : `🔒 ${esc(lockTxt)}`;
+      return `<button class="jet-chip ${sel ? 'sel' : ''} ${unlocked || hangar ? '' : 'locked'} ${j.exclusive ? 'special' : ''}" data-action="jet" data-value="${id}" title="${unlocked ? '' : esc(this._lockText(j))}">
+        <span class="jc-name">${esc(j.name)}</span><span class="jc-role">${role}</span></button>`;
     }).join('')}</div>`;
   }
 
@@ -273,8 +363,8 @@ export class Menus {
         <label class="chk"><input type="checkbox" data-free="ground" ${f.ground ? 'checked' : ''}> Ground targets</label>
         <label class="chk"><input type="checkbox" data-free="rings" ${f.rings ? 'checked' : ''}> Ring course</label>
       </div>
-      <h3>Aircraft</h3>
-      ${this._jetPicker()}
+      <h3>Aircraft <small class="free-all">every aircraft is unlocked in free flight</small></h3>
+      ${this._jetPicker(null, true)}
       <button class="launch" data-action="launch-free">Take off ▸</button>
     </div>`;
   }
@@ -285,7 +375,7 @@ export class Menus {
     return `
     <div class="hangar">
       <div class="panel side">
-        <header><button class="back" data-action="back">‹ Back</button><h2>Hangar</h2><span class="hint">${MILITARY_ORDER.length + AIRLINER_ORDER.length} aircraft</span></header>
+        <header><button class="back" data-action="back">‹ Back</button><h2>Hangar</h2><span class="hint">${MILITARY_ORDER.length + HEAVY_ORDER.length + AIRLINER_ORDER.length} aircraft</span></header>
         ${this._jetPicker()}
       </div>
       <div class="panel side right">
@@ -303,11 +393,23 @@ export class Menus {
           <tr><td>Roll rate</td><td>${f.rollRate}°/s</td></tr>
           <tr><td>Max AoA</td><td>${f.maxAoA}°${f.tvc ? ' (thrust vectoring)' : ''}</td></tr>
           <tr><td>Top speed</td><td>Mach ${f.maxMach}</td></tr>
-          <tr><td>${jet.civil ? 'Armament' : 'Missiles / gun'}</td><td>${jet.civil ? 'None' : `${jet.weapons.missiles} / ${jet.weapons.gunAmmo} rds`}</td></tr>
+          <tr><td>Armament</td><td>${esc(this._armament(jet))}</td></tr>
+          ${f.ceiling ? `<tr><td>Service ceiling</td><td>${Math.round(f.ceiling / 100) * 100} m</td></tr>` : ''}
+          <tr><td>Radar signature</td><td>${(jet.stealth ?? 1) < 0.2 ? 'Very low (stealth)' : (jet.stealth ?? 1) < 0.5 ? 'Low (stealth)' : (jet.stealth ?? 1) < 1 ? 'Reduced' : (jet.stealth ?? 1) > 1.2 ? 'Very large' : 'Normal'}</td></tr>
         </table>
-        ${this.save.isJetUnlocked(jet) ? '' : `<p class="unlock-note">🔒 ${esc(this._lockText(jet))}</p>`}
+        ${this.save.isJetUnlocked(jet) ? '' : `<p class="unlock-note">🔒 Campaign: ${esc(this._lockText(jet))}. Free to fly in Free Flight.</p>`}
       </div>
     </div>`;
+  }
+
+  _armament(j) {
+    const w = j.weapons;
+    if (j.civil || j.unarmed || (!w.missiles && !w.bombs && !w.gunAmmo)) return 'None';
+    const parts = [];
+    if (w.bombs) parts.push(`${w.bombs} × ${w.bombName || 'guided bombs'}`);
+    if (w.missiles) parts.push(`${w.missiles} missiles`);
+    if (w.gunAmmo) parts.push(`gun ${w.gunAmmo} rds`);
+    return parts.join(' · ');
   }
 
   _settings() {
@@ -322,6 +424,7 @@ export class Menus {
         <h3>Graphics</h3>
         <label>Quality ${sel('quality', ['auto', ...QUALITY_ORDER], ['Auto-detect', ...QUALITY_ORDER.map((q) => PRESETS[q].label)])}</label>
         <label>Dynamic resolution ${chk('dynamicRes')}</label>
+        <label>Scene brightness ${rng('brightness', 0.5, 1.3, 0.05, (v) => `${Math.round(v * 100)}%`)}</label>
         <label>Show FPS ${chk('showFps')}</label>
         <label>Camera shake ${chk('cameraShake')}</label>
         <p class="note">Terrain and cloud detail changes apply from the next flight.</p>
@@ -329,12 +432,12 @@ export class Menus {
         <label>Invert pitch ${chk('invertPitch')}</label>
         <label>Mouse flight (pointer lock) ${chk('mouseFlight')}</label>
         <label>Mouse sensitivity ${rng('sensitivity', 0.3, 2.5, 0.1, (v) => Number(v).toFixed(1))}</label>
-        <label>Touch controls ${sel('touchControls', ['auto', 'on', 'off'], ['Auto', 'Always on', 'Off'])}</label>
+        <label>Tilt steering on phones (gyro) ${chk('gyro')}</label>
+        <button class="small-btn" data-action="nav" data-value="controls">Key bindings, gamepad, touch layout &amp; tilt…</button>
         <h3>Gameplay</h3>
         <label>Difficulty ${sel('difficulty', [0.7, 1, 1.25], ['Recruit', 'Pilot', 'Ace'])}</label>
         <label>Lock-on assist (easy targeting) ${chk('lockAssist')}</label>
         <label>Targeting pod window ${chk('targetCam')}</label>
-        <label>Weapon camera follows missiles ${chk('weaponCam')}</label>
         <label>Units ${sel('units', ['imperial', 'metric'], ['Knots / feet', 'km/h / metres'])}</label>
         <label>Unlock all missions &amp; aircraft ${chk('unlockAll')}</label>
         <h3>Audio</h3>
@@ -348,35 +451,7 @@ export class Menus {
   }
 
   _controls() {
-    const rows = [
-      ['Pitch', 'W / S or ↑ / ↓', 'Left stick'],
-      ['Roll', 'A / D or ← / →', 'Left stick'],
-      ['Rudder', 'Q / E', 'Right stick'],
-      ['Throttle', 'Shift / R up, F down, 0-5, mouse wheel', 'RB / LB'],
-      ['Afterburner', 'Throttle above 90%', 'RB (hold)'],
-      ['Gun', 'Space (or left mouse in mouse flight)', 'RT'],
-      ['Missile', 'Enter / X (or right mouse)', 'A / LT'],
-      ['Flares', 'V / Z', 'B'],
-      ['Next target (nearest the nose first)', 'T / Tab', 'X'],
-      ['Lock target in view', 'Y / middle mouse', ''],
-      ['Weapon camera on/off', 'K', ''],
-      ['Camera view', 'C', 'Y'],
-      ['Padlock view', 'L', 'R3'],
-      ['Look around', 'Right-drag mouse / numpad', 'Right stick'],
-      ['Gear', 'G', 'Back'],
-      ['Air brake / wheel brakes (anti-skid)', 'B (hold)', 'L3'],
-      ['Autobrake LO / MED / MAX / RTO', 'U', 'D-pad right'],
-      ['Thrust reversers / drag chute', 'J', 'D-pad left'],
-      ['ATC menu: clearance, ATIS, picture, vectors, mayday, say again', 'M, then 1-6', ''],
-      ['Pause', 'Esc / P', 'Start'],
-    ];
-    return `
-    <div class="panel">
-      <header><button class="back" data-action="back">‹ Back</button><h2>Controls</h2></header>
-      <table class="controls"><tr><th>Action</th><th>Keyboard / mouse</th><th>Gamepad</th></tr>
-      ${rows.map((r) => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}</table>
-      <p class="note">On phones and tablets an on-screen stick, throttle and weapon buttons appear automatically. Enable <b>Mouse flight</b> in Settings to fly with the mouse.</p>
-    </div>`;
+    return this.controlsScreen.render();
   }
 
   _pause() {

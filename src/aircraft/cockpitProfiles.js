@@ -68,6 +68,19 @@ export const AIRLINER_COCKPITS = {
       sq('standby', -0.22, 0.09, 0.075),
     ],
   },
+  b787: {
+    maker: 'boeing', style: 'boeing', control: 'yoke', engines: 2, hw: 1.42, panelHW: 0.92,
+    windows: [
+      { pts: [[3.2, -10], [43, -12.5], [40, 19], [3.2, 22]], r: 2.2 },
+      { pts: [[49, -12.5], [88, -10.5], [86, 16], [47, 18]], r: 3.5 },
+    ],
+    // five large-format displays across the panel
+    displays: [
+      { page: 'pfd', x: -0.66, y: 0.15, w: 0.24, h: 0.19 }, { page: 'nd', x: -0.37, y: 0.15, w: 0.24, h: 0.19 },
+      { page: 'ewd', x: 0, y: 0.15, w: 0.24, h: 0.19 }, { page: 'nd', x: 0.37, y: 0.15, w: 0.24, h: 0.19 },
+      { page: 'pfd', x: 0.66, y: 0.15, w: 0.24, h: 0.19 }, sq('standby', -0.17, 0.34, 0.07),
+    ],
+  },
   concorde: {
     maker: 'concorde', style: 'concorde', control: 'ramhorn', engines: 4, hw: 1.0, panelHW: 0.68, narrow: true,
     windows: [
@@ -210,6 +223,54 @@ export const FIGHTER_COCKPITS = {
     style: 'fighterDark', stick: 'center', hud: 'ru', panelW: 0.78, color: true, metric: true,
     displays: [{ page: 'tsd', x: -0.17, y: 0.18, w: 0.3, h: 0.22, osb: true }, { page: 'radar', x: 0.17, y: 0.18, w: 0.3, h: 0.22, osb: true, tgp: true }, { page: 'eng', x: -0.34, y: 0.07, w: 0.08, h: 0.08 }, { page: 'rwr', x: 0.34, y: 0.07, w: 0.08, h: 0.08 }],
     gauges: [],
+  },
+  // bombers and specials: the B-2's eight colour MFDs, the B-1's and B-52's
+  // mixed analogue / glass panels, the Blackbird's all-steam gauges
+  b2: {
+    style: 'fighterDark', stick: 'center', hud: 'none', panelW: 0.82, color: true,
+    displays: [mfd('tsd', -0.3, 0.15, 0.14), mfd('radar', -0.1, 0.15, 0.14), mfd('sms', 0.1, 0.15, 0.14, { tgp: true }), mfd('eng', 0.3, 0.15, 0.14), { page: 'ded', x: 0, y: 0.04, w: 0.12, h: 0.035, color: true }],
+    gauges: [],
+  },
+  b1b: {
+    style: 'fighter', stick: 'center', hud: 'none', panelW: 0.76, color: true,
+    displays: [mfd('tsd', -0.24, 0.15, 0.13), mfd('sms', 0.24, 0.15, 0.13, { tgp: true })],
+    gauges: [...adiCluster(0, 0.16, 1), { type: 'rpm', x: 0.34, y: 0.08, r: 0.02 }, { type: 'egt', x: 0.34, y: 0.13, r: 0.02 }, { type: 'mach', x: -0.34, y: 0.08, r: 0.02 }, { type: 'fuel', x: -0.34, y: 0.14, r: 0.022 }],
+  },
+  b52: {
+    style: 'fighter', stick: 'center', hud: 'none', panelW: 0.82, color: false,
+    displays: [{ page: 'tsd', x: 0.0, y: 0.08, w: 0.13, h: 0.1 }],
+    gauges: [
+      ...adiCluster(-0.2, 0.17, 1), { type: 'vsi', x: -0.33, y: 0.25, r: 0.022 },
+      { type: 'rpm', x: 0.14, y: 0.08, r: 0.018 }, { type: 'rpm', x: 0.19, y: 0.08, r: 0.018 }, { type: 'rpm', x: 0.24, y: 0.08, r: 0.018 }, { type: 'rpm', x: 0.29, y: 0.08, r: 0.018 },
+      { type: 'egt', x: 0.14, y: 0.13, r: 0.018 }, { type: 'egt', x: 0.19, y: 0.13, r: 0.018 }, { type: 'egt', x: 0.24, y: 0.13, r: 0.018 }, { type: 'egt', x: 0.29, y: 0.13, r: 0.018 },
+      { type: 'fuel', x: 0.21, y: 0.22, r: 0.026 }, { type: 'clock', x: 0.33, y: 0.22, r: 0.018 },
+    ],
+  },
+  tu160: {
+    style: 'fighterRu', stick: 'center', hud: 'none', panelW: 0.8, color: false, metric: true,
+    displays: [{ page: 'radar', x: 0.0, y: 0.09, w: 0.12, h: 0.1 }],
+    gauges: [{ type: 'adi', x: -0.2, y: 0.13, r: 0.04 }, { type: 'hsi', x: -0.2, y: 0.25, r: 0.034 }, { type: 'asi', x: -0.32, y: 0.12, r: 0.028 }, { type: 'alt', x: -0.08, y: 0.25, r: 0.028 }, { type: 'mach', x: -0.32, y: 0.22, r: 0.024 }, { type: 'rpm', x: 0.18, y: 0.1, r: 0.02 }, { type: 'rpm', x: 0.23, y: 0.1, r: 0.02 }, { type: 'rpm', x: 0.28, y: 0.1, r: 0.02 }, { type: 'rpm', x: 0.33, y: 0.1, r: 0.02 }, { type: 'egt', x: 0.18, y: 0.16, r: 0.02 }, { type: 'egt', x: 0.23, y: 0.16, r: 0.02 }, { type: 'egt', x: 0.28, y: 0.16, r: 0.02 }, { type: 'egt', x: 0.33, y: 0.16, r: 0.02 }, { type: 'annun', x: 0.25, y: 0.25, r: 0.05, cols: 3, rows: 3 }],
+  },
+  sr71: {
+    style: 'fighter', stick: 'center', hud: 'none', panelW: 0.56, color: false,
+    displays: [],
+    gauges: [...adiCluster(0, 0.15, 1.05), { type: 'mach', x: -0.2, y: 0.08, r: 0.026 }, { type: 'vsi', x: -0.2, y: 0.17, r: 0.024 }, { type: 'rpm', x: 0.2, y: 0.08, r: 0.022 }, { type: 'rpm', x: 0.25, y: 0.08, r: 0.022 }, { type: 'egt', x: 0.2, y: 0.15, r: 0.022 }, { type: 'egt', x: 0.25, y: 0.15, r: 0.022 }, { type: 'fuel', x: 0.225, y: 0.23, r: 0.026 }, { type: 'g', x: -0.2, y: 0.25, r: 0.02 }],
+  },
+  f117: {
+    style: 'fighterDark', stick: 'center', hud: 'single', panelW: 0.62, color: true,
+    displays: [mfd('tsd', -0.19, 0.15, 0.12), mfd('sms', 0.19, 0.15, 0.12, { tgp: true }), { page: 'radar', x: 0, y: 0.24, w: 0.13, h: 0.11 }],
+    gauges: [{ type: 'adi', x: 0, y: 0.1, r: 0.03 }],
+    ufc: { x: 0, y: 0.035, w: 0.12, h: 0.03 },
+  },
+  mig31: {
+    style: 'fighterRu', stick: 'center', hud: 'ru', panelW: 0.64, color: false, metric: true,
+    displays: [{ page: 'radar', x: 0.17, y: 0.09, w: 0.11, h: 0.09 }, { page: 'tsd', x: -0.17, y: 0.09, w: 0.11, h: 0.09 }],
+    gauges: [{ type: 'adi', x: 0, y: 0.14, r: 0.04 }, { type: 'hsi', x: 0, y: 0.26, r: 0.034 }, { type: 'asi', x: -0.1, y: 0.2, r: 0.026 }, { type: 'alt', x: 0.1, y: 0.2, r: 0.026 }, { type: 'mach', x: -0.1, y: 0.28, r: 0.024 }, { type: 'vsi', x: 0.1, y: 0.28, r: 0.024 }, { type: 'rpm', x: 0.23, y: 0.2, r: 0.02 }, { type: 'rpm', x: 0.28, y: 0.2, r: 0.02 }, { type: 'egt', x: 0.23, y: 0.26, r: 0.02 }, { type: 'egt', x: 0.28, y: 0.26, r: 0.02 }, { type: 'g', x: -0.25, y: 0.2, r: 0.02 }],
+  },
+  f4: {
+    style: 'fighter', stick: 'center', hud: 'single', panelW: 0.62, color: false,
+    displays: [{ page: 'radar', x: 0, y: 0.09, w: 0.12, h: 0.1 }],
+    gauges: [...adiCluster(0, 0.21, 0.95), { type: 'rpm', x: 0.2, y: 0.08, r: 0.022 }, { type: 'rpm', x: 0.25, y: 0.08, r: 0.022 }, { type: 'egt', x: 0.2, y: 0.14, r: 0.022 }, { type: 'egt', x: 0.25, y: 0.14, r: 0.022 }, { type: 'aoa', x: -0.2, y: 0.09, r: 0.022 }, { type: 'g', x: -0.25, y: 0.14, r: 0.02 }, { type: 'fuel', x: 0.225, y: 0.22, r: 0.024 }],
   },
   j20: {
     style: 'fighterDark', stick: 'center', hud: 'single', panelW: 0.76, color: true,

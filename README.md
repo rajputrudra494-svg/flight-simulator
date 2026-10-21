@@ -7,7 +7,7 @@ WebGL 2 is available, from phones to high-end desktops.
 
 ## Features
 
-### Aircraft (24)
+### Aircraft (33)
 Every aircraft has its own geometry, livery, flight model and loadout, built from real-world
 dimensions, wing areas, weights and engine thrust.
 
@@ -32,8 +32,28 @@ dimensions, wing areas, weights and engine thrust.
 | J-20 Mighty Dragon | Stealth interceptor | Long canard delta, internal bays |
 | Su-57 Felon | Stealth super-manoeuvrable | 3D thrust vectoring, LEVCONs |
 | F-22A Raptor | Stealth air dominance | The final unlock |
+| F-4E Phantom II | Cold War multirole | Cranked outer wings, drooping stabilators, gun in the nose |
+| MiG-31BM Foxhound | Mach 2.8 interceptor | Engines pull harder with speed; 1.23 Mach limit down low |
 
-**Airliners & cargo (7)** — Airbus A320neo, Boeing 737 MAX 8, Boeing 777-300ER, Boeing 747-8
+**Bombers and special aircraft (6)**
+
+| Aircraft | Role | Highlights |
+|---|---|---|
+| B-2A Spirit | Stealth strategic bomber | 52 m flying wing, sawtooth trailing edge, buried engines with shielded exhaust slots, elevons, 16 JDAMs in two bays |
+| B-1B Lancer | Supersonic bomber | Wings sweep 15°–67.5° with Mach, four afterburning F101s, Mach 1.25, 24 JDAMs in three bays |
+| B-52H Stratofortress | Strategic heavy bomber | Eight TF33s in twin pods, bicycle gear with outriggers, +6° wing incidence (lifts off flat, cruises nose-down), drag chute |
+| Tu-160 Blackjack | Supersonic strategic bomber | The "White Swan": 20°–65° sweep, 980 kN of reheat, Mach 2 |
+| SR-71A Blackbird | Mach 3 reconnaissance | Chines, inlet spikes, turbo-ramjet thrust that grows past Mach 1.4 and a 450-knot structural limit: climb above 20 km and run at Mach 3.2+. Unarmed |
+| F-117A Nighthawk | Stealth attack | Faceted flat-shaded skin and canopy, butterfly tail, shielded exhausts, two GBU-27s |
+
+Real weights, wing areas, thrust, Mach and g limits drive the flight model, so a B-2 takes a long
+take-off run and turns gently, the SR-71 is held to 450 knots until the air thins, and the MiG-31
+tops out near Mach 2.8.
+
+**Every aircraft is unlocked in Free Flight.** The campaign still unlocks them for missions.
+
+**Airliners & cargo (8)** — Airbus A320neo, Boeing 737 MAX 8, Boeing 787-9 Dreamliner (raked wingtips, big
+windows), Boeing 777-300ER, Boeing 747-8
 (upper-deck hump), Airbus A380 (two window decks), Concorde (droop nose, reheat, Mach 2) and the
 **Antonov An-124 Ruslan**.
 
@@ -44,9 +64,10 @@ airlines), and flaps that come down with the gear.
 **Antonov An-124 Ruslan** — 69.1 m long, 73.3 m span, 21 m tall, 628 m² anhedral high wing, four
 Progress D-18T turbofans of 229.5 kN, 24-wheel gear in fuselage sponsons, flown at 395 t with a full
 hold. High-bypass turbofans lose thrust as speed builds, so the take-off run takes about 50 s and
-2.4 km of runway and lift-off comes at roughly 170 kt. It is an exclusive aircraft: it stays
-locked (even with *Unlock all*) until you complete **Heavy Escort**, **Final Approach** and
-**Dragon's Teeth**, which also opens its own special operation, **Operation Atlas**.
+2.4 km of runway and lift-off comes at roughly 170 kt. For the campaign it is an exclusive
+aircraft: it stays locked there (even with *Unlock all*) until you complete **Heavy Escort**,
+**Final Approach** and **Dragon's Teeth**, which also opens its own special operation, **Operation
+Atlas**. In Free Flight it is open from the start like everything else.
 
 ### Cockpits
 Press **C** for the cockpit view. Every aircraft has its own cockpit layout, lit like a real one:
@@ -112,7 +133,19 @@ targets, ring courses and air traffic. Land on the runway to rearm and repair.
   scope, bank-angle scale, master-arm/weapon block, sweeping radar.
 - **Targeting pod**: a zoomed, stabilised TV picture of your target in a window (and on the cockpit
   centre display).
-- **Weapon camera** (**K**): ride along behind your missile to impact.
+- **Bombers drop real bombs**: designate a ground target and the HUD shows the glide reach, an
+  *IN RNG* cue and a **CCIP** impact pipper. Bay doors swing open, the bomb falls clear, deploys its
+  tail fins and steers to the coordinates (JDAM / Paveway / KAB) on a lifting glide; without a
+  target it falls ballistically onto the pipper.
+- **Realistic launches**: heat seekers light up on the rail; radar missiles are ejected, fall clear
+  for a third of a second and then ignite, with a white-hot flash, a burst of exhaust smoke, a
+  flickering motor plume and a billowing smoke trail. Guns fire belts with a tracer every third
+  round, a ragged muzzle flash and gun gas trailing back along the jet.
+- **Crashes and shoot-downs**: aircraft break into the parts they are really made of (wings, tail,
+  nose, centre fuselage) that keep the livery, glow hot and char, trail fire and smoke, tumble,
+  bounce and skid along the ground or sink in the sea. A warhead can tear an airframe apart in the
+  air, or it can shed a wing and roll into the ground. Ground impacts give a fuel fireball, a dust
+  ring, a scorch mark and a smoke column; a crash camera holds a wide shot of your wreckage.
 - Ground vehicles drive looping routes, ships zig-zag and drones keep changing course.
 
 ### Simulation
@@ -175,12 +208,31 @@ transcript on the HUD with the station tag and frequency.
 - Animated water, billboard clouds, instanced forests and city parks
 - PBR aircraft with image-based lighting, panel-line normal maps, clear-coat airline paint, shock
   diamonds in the afterburners, nav lights, strobes and beacons with glow
-- Particle explosions, smoke trails, wingtip vortices, contrails, bloom, ACES tone mapping
-- **Low / Medium / High / Ultra** presets, GPU auto-detection and dynamic resolution scaling;
-  low-rise city blocks are tiled and drawn only near the camera
+- Particle explosions, fuel fireballs, billowing missile smoke, wingtip vortices, contrails,
+  restrained bloom, ACES tone mapping and a soft highlight shoulder that keeps glare down
+- **Scene brightness** setting (defaults a little dimmer than the raw sky model, so the sun and
+  sunlit clouds are easier to fly against)
+- **Low / Medium / High / Ultra** presets (**High** by default, auto-detection still available) and
+  dynamic resolution scaling; low-rise city blocks are tiled and drawn only near the camera
+- A cinematic title screen: blended camera shots of the selected aircraft with a tracking reticle,
+  a featured-aircraft card that browses the whole hangar, and **Quick flight**
 
 ### Controls
-Keyboard and mouse, gamepad (standard mapping) and touch (virtual stick, throttle and buttons).
+Keyboard and mouse, gamepad / joystick / HOTAS, touch and **tilt (gyro)** on phones and tablets.
+
+**Custom controls** (Controls screen): click any binding and press the key, mouse button (side
+buttons too) or gamepad button you want; two keys per action plus gamepad buttons, conflicts move
+automatically, presets (Standard, Left-handed, Arrow keys) and reset. Pick which stick axis drives
+pitch, roll, rudder, look and a **throttle lever** (with *Detect* and invert), plus dead zone,
+response curve and keyboard stick speed.
+
+**Phones and tablets**: drag every on-screen control to where your thumbs want it in the touch
+layout editor, resize and fade them, mirror for left-handed play, or use a **floating stick** that
+appears under your thumb. **Tilt steering** flies with the device's motion sensors (roll like a
+steering wheel, tilt the top edge towards you to pull) with sensitivity and invert options; the
+TILT button recentres it. Optional vibration on firing, hits and crashes.
+
+Default layout:
 
 | Action | Keyboard / mouse | Gamepad |
 |---|---|---|
@@ -189,11 +241,10 @@ Keyboard and mouse, gamepad (standard mapping) and touch (virtual stick, throttl
 | Throttle | Shift / R up, F down, 0–5, mouse wheel | RB / LB |
 | Afterburner | Throttle above 90% | |
 | Gun | Space | RT |
-| Missile | Enter / X | A / LT |
+| Missile / bomb release | Enter / X | A / LT |
 | Flares | V / Z | B |
 | Next target | T / Tab | X |
 | Lock target in view | Y / middle mouse | |
-| Weapon camera on/off | K | |
 | Camera (chase, cockpit, padlock, cinematic, orbit) | C | Y |
 | Padlock view | L | R3 |
 | Look around | Right-drag / numpad | |
@@ -204,7 +255,7 @@ Keyboard and mouse, gamepad (standard mapping) and touch (virtual stick, throttl
 | Pause | Esc / P | Start |
 
 You can turn on **Mouse flight** (pointer-lock virtual stick), **Invert pitch**, **Lock-on
-assist**, the **Targeting pod window** and the **Weapon camera** in Settings.
+assist** and the **Targeting pod window** in Settings.
 
 ## Running locally
 
@@ -242,12 +293,13 @@ src/
   core/      Game loop, renderer & post-processing, quality presets, input, audio, radio, saves
   world/     Noise, maps, terrain LOD, atmosphere/fog, sky, water, clouds, trees, airbase,
              city layout (cityLayout.js) and city rendering (City.js)
-  aircraft/  Jet catalogues (jets, fighters, airliners), procedural geometry & liveries,
+  aircraft/  Jet catalogues (jets, fighters, heavies, airliners), procedural geometry & liveries,
              cockpits, flight model, aircraft entity, AI
   combat/    Guns, missiles, flares, ground & naval units
-  fx/        Particles, ribbon trails, explosions, sonic booms
+  fx/        Particles, ribbon trails, explosions, sonic booms, wreckage break-up
   game/      Battle runtime, missions, objectives, rings, camera rig, targeting, targeting pod,
              air traffic control and AWACS (ATC.js)
-  ui/        HUD, menus, touch controls
+  ui/        HUD, menus, controls editor, touch controls (core/Controls.js and core/Gyro.js
+             hold the binding model and tilt steering)
 scripts/     Physics and browser smoke tests
 ```

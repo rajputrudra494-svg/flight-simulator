@@ -287,14 +287,16 @@ export class GroundUnit {
     if (this.spinner) this.spinner.rotation.y += dt * (this.type === 'radar' ? 1.2 : 0.6);
     if (this.speed > 0) this._move(dt, battle.map);
     if (!this.range || this.team !== 'enemy') return;
-    // pick nearest hostile aircraft
+    // pick nearest hostile aircraft the radar can see: stealthy airframes are
+    // only picked up much closer (detection range scales with radar cross-section)
     let target = null, best = Infinity;
     for (const ac of battle.aircraft) {
       if (!ac.alive || ac.dying || ac.team === this.team || ac.team === 'civil') continue;
       const d = ac.position.distanceTo(this.position);
+      if (d > this.range * (ac.spec.stealth ?? 1)) continue;
       if (d < best) { best = d; target = ac; }
     }
-    if (!target || best > this.range) {
+    if (!target) {
       this.lockTime = Math.max(0, this.lockTime - dt);
       return;
     }

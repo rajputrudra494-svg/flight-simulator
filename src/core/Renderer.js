@@ -41,8 +41,12 @@ const GradeShader = {
       col.r = texture2D( tDiffuse, vUv - d * ca ).r;
       col.g = texture2D( tDiffuse, vUv ).g;
       col.b = texture2D( tDiffuse, vUv + d * ca ).b;
-      // gentle filmic contrast
+      // gentle filmic contrast, a touch more colour, and a soft shoulder that
+      // takes the glare out of sunlit cloud tops and water
       col = mix( col, col * col * ( 3.0 - 2.0 * col ), 0.18 );
+      float lum = dot( col, vec3( 0.2126, 0.7152, 0.0722 ) );
+      col = mix( vec3( lum ), col, 1.07 );
+      col *= 1.0 - 0.16 * smoothstep( 0.68, 1.0, lum );
       float vig = smoothstep( 0.85, 0.25, r );
       col *= mix( 1.0 - uVignette, 1.0, vig );
       // G-induced blackout tunnel / red damage flash / cloud whiteout
@@ -118,7 +122,8 @@ export class GameRenderer {
     this.overlayPass.clearDepth = true;
     this.overlayPass.enabled = false;
     composer.addPass(this.overlayPass);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.38, 0.55, 1.35);
+    // restrained bloom: lights and flames glow, daylight surfaces do not
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.22, 0.32, 2.4);
     composer.addPass(this.bloom);
     composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);

@@ -70,6 +70,8 @@ export class FlightModel {
     this.stalled = false;
     this.stallWarn = false;
     this.lastTouchdown = null;
+    // wing incidence: the B-52's wing is set at +6 deg, so it lifts off flat and cruises nose-down
+    this.incidence = THREE.MathUtils.degToRad(flight.incidence || 0);
     this.alphaStall = THREE.MathUtils.degToRad(flight.maxAoA + 5);
     this.alphaMax = THREE.MathUtils.degToRad(flight.maxAoA);
     this.clMax = Math.min(flight.clAlpha * this.alphaStall * 0.82, flight.maxAoA > 30 ? 2.1 : 1.75);
@@ -185,8 +187,10 @@ export class FlightModel {
     else t = f.thrustDry + (f.thrustAB - f.thrustDry) * ((throttle - 0.9) / 0.1);
     const lapse = Math.pow(rho / 1.225, 0.72);
     // reheated turbojets gain a little ram thrust; high-bypass turbofans lose
-    // thrust as airspeed builds (why heavy jets accelerate so slowly)
-    const ram = f.noAB ? 1 - 0.35 * Math.min(mach, 0.9) : 1 + 0.12 * Math.min(mach, 1.6);
+    // thrust as airspeed builds (why heavy jets accelerate so slowly). Turbo-
+    // ramjets (the SR-71's J58 with its spike inlets) keep gaining past Mach 1.4.
+    let ram = f.noAB ? 1 - 0.35 * Math.min(mach, 0.9) : 1 + 0.12 * Math.min(mach, 1.6);
+    if (f.ramK) ram += f.ramK * Math.max(0, Math.min(mach, f.ramMach || f.maxMach) - 1.4);
     return t * 1000 * lapse * ram;
   }
 
@@ -248,10 +252,11 @@ export class FlightModel {
     this.alpha = alpha;
     this.beta = beta;
 
-    // Lift coefficient with stall
-    const aAbs = Math.abs(alpha);
-    const clLin = Math.max(-this.clMax, Math.min(this.clMax, f.clAlpha * alpha));
-    const clPlate = 1.15 * Math.sin(2 * alpha);
+    // Lift coefficient with stall (wing angle = body angle + incidence)
+    const aw = alpha + this.incidence;
+    const aAbs = Math.abs(aw);
+    const clLin = Math.max(-this.clMax, Math.min(this.clMax, f.clAlpha * aw));
+    const clPlate = 1.15 * Math.sin(2 * aw);
     const wStall = smoothstep(this.alphaStall, this.alphaStall + 0.15, aAbs);
     let CL = clLin * (1 - wStall) + clPlate * wStall;
     // airliners extend high-lift flaps together with the gear
@@ -270,6 +275,8 @@ export class FlightModel {
     if (this.gearDown) CD += f.flapCL ? 0.035 : 0.022;
     CD += 0.07 * this.airbrake + 0.08 * this.spoilers;
     if (this.bs.aeroBrake && this.onGround) CD += f.cd0 * this.bs.aeroBrake * this.brakePressure;
+    // structural airspeed limit (SR-71: about 450 KEAS): drag climbs steeply past it
+    if (f.maxIas && this.ias > f.maxIas) CD += ((this.ias - f.maxIas) / f.maxIas) ** 2 * 6;
     const S = f.wingArea;
 
     _f.set(0, -G * m, 0);
@@ -321,13 +328,14 @@ export class FlightModel {
     // AoA limiter: limit pitch rate so alpha stays below the limit
     const gammaDot = V > 5 ? (liftMag / m - G * _lift.y) / V : 0;
     if (!this.onGround) {
-      const limitHi = gammaDot + 4 * (this.alphaMax - alpha);
-      const limitLo = gammaDot + 4 * (-this.alphaMax * 0.45 - alpha);
+      const limitHi = gammaDot + 4 * (this.alphaMax - aw);
+      const limitLo = gammaDot + 4 * (-this.alphaMax * 0.45 - aw);
       if (qCmd > limitHi) qCmd = Math.max(limitHi, ctrl.pitch > 0 ? 0 : limitHi);
       if (qCmd < limitLo) qCmd = Math.min(limitLo, 0);
       // nose slices towards the flight path when slow / stalled
       const slow = 1 - eff;
-      qCmd -= alpha * (0.6 * slow + 3 * wStall);
+      // (body angle weathercocks; the wing's own angle drives the stall break)
+      qCmd -= alpha * 0.6 * slow + aw * 3 * wStall;
     }
 
     const rollEff = Math.max(0.08, Math.min(1, qbar / 7000)) * (1 - 0.55 * smoothstep(0.25, this.alphaMax, aAbs));

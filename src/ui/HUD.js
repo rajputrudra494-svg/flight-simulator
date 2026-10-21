@@ -76,7 +76,7 @@ export class HUD {
   }
 
   draw(dt, g) {
-    const { camera, battle, mission, targeting, cameraMode, settings, targetCam, weaponCam, radio, atcMenu } = g;
+    const { camera, battle, mission, targeting, cameraMode, settings, targetCam, radio, atcMenu } = g;
     this.pipRect = targetCam && targetCam.active ? targetCam.rect : null;
     const ctx = this.ctx;
     this.clear();
@@ -221,6 +221,32 @@ export class HUD {
           ctx.fillText(`N1 ${Math.round(22 + fm.throttle * 76)}%`, rx, ry + 18 * S);
           ctx.fillText(`GW ${Math.round(fm.mass / 1000)}T`, rx, ry + 36 * S);
           if (fm.autobrake && fm.autobrake.available) ctx.fillText(`A/BRK ${fm.autobrake.mode}`, rx, ry + 54 * S);
+        } else if (p.unarmed) {
+          ctx.fillStyle = HUD_DIM;
+          ctx.fillText('RECON  UNARMED', rx, ry - 20 * S);
+          ctx.fillStyle = HUD_GREEN;
+          ctx.fillText(`MACH ${fm.mach.toFixed(2)}`, rx, ry);
+          ctx.fillText(`KEAS ${Math.round(fm.ias * 1.944)}`, rx, ry + 18 * S);
+        } else if (targeting && targeting.weaponMode === 'bomb') {
+          const w = p.spec.weapons;
+          ctx.fillStyle = HUD_DIM;
+          ctx.fillText('ARM  A/G', rx, ry - 20 * S);
+          ctx.fillStyle = p.bombs > 0 ? HUD_GREEN : AMBER;
+          ctx.fillText(`${(w.bombShort || 'BOMB').toUpperCase()}  x${p.bombs}`, rx, ry);
+          ctx.fillStyle = HUD_GREEN;
+          ctx.fillText(targeting.locked ? 'GPS  GUIDED' : 'CCIP BALLISTIC', rx, ry + 18 * S);
+          ctx.fillStyle = p.flares > 0 ? HUD_GREEN : HUD_DIM;
+          ctx.fillText(w.flares ? `FLR ${p.flares}` : 'NO CM', rx, ry + 36 * S);
+          const t = targeting.target;
+          if (t && t.kind !== 'air') {
+            const dh = Math.hypot(t.position.x - p.position.x, t.position.z - p.position.z);
+            const reach = targeting.reach || targeting.bombReach(p, t);
+            const f = (m) => (metric ? `${(m / 1000).toFixed(1)}` : `${(m / 1852).toFixed(1)}`);
+            ctx.fillStyle = targeting.locked ? HUD_GREEN : AMBER;
+            ctx.fillText(targeting.locked ? 'IN RNG' : dh > reach ? 'OUT OF RNG' : 'ALIGN TGT', rx, ry + 54 * S);
+            ctx.fillStyle = HUD_GREEN;
+            ctx.fillText(`RNG ${f(dh)}/${f(reach)}${metric ? 'KM' : 'NM'}`, rx, ry + 72 * S);
+          }
         } else {
           const isRadar = targeting && targeting.missileType === 'radar';
           ctx.fillStyle = HUD_DIM;
@@ -235,6 +261,7 @@ export class HUD {
 
       // --- Targets
       this._targets(camera, battle, civil ? null : targeting, p, S, blink);
+      if (!civil && p.bombs > 0 && alive) this._bombSight(camera, battle, targeting, p, S, blink);
       if (!civil && targeting && targeting.target) this._targetInfo(targeting, p, S);
       // --- Next ring
       if (mission && mission.rings && mission.rings.current) this._ringMarker(camera, mission.rings.current, p, S);
@@ -286,12 +313,6 @@ export class HUD {
     this._radar(battle, mission, p, S);
     if (!civil) this._rwr(battle, p, S, blink);
     if (targetCam && targetCam.active && targetCam.rect) this._tgpFrame(targetCam, targeting, p, S);
-    if (weaponCam) {
-      ctx.textAlign = 'center';
-      ctx.font = `bold ${16 * S}px ${FONT}`;
-      ctx.fillStyle = WHITE;
-      ctx.fillText(`WEAPON CAM  ${weaponCam}`, cx, 70 * S);
-    }
     // --- Mission panel
     if (mission) this._missionPanel(mission, S);
     if (radio) this._radioPanel(radio, S, blink);
@@ -629,6 +650,44 @@ export class HUD {
   }
 
   // Target data block: type, range, altitude, speed, aspect and closure
+  // CCIP: where a bomb released now would hit, joined to the flight path by
+  // the bomb fall line; with a designated target in reach, the release cue
+  _bombSight(camera, battle, targeting, p, S, blink) {
+    const ctx = this.ctx;
+    this._ccipT = (this._ccipT || 0) + 1;
+    if (this._ccipT % 2 === 1 || !this._ccip) this._ccip = battle.weapons.predictImpact(p.position, p.velocity, this._ccipV || (this._ccipV = new THREE.Vector3()));
+    const ip = this._ccip;
+    const fpm = this.project(camera, _v.copy(p.velocity).normalize().multiplyScalar(500).add(camera.position), {});
+    if (ip) {
+      const pt = this.project(camera, ip, {});
+      if (pt.on) {
+        ctx.strokeStyle = HUD_GREEN;
+        ctx.lineWidth = 1.6 * S;
+        ctx.setLineDash([6 * S, 5 * S]);
+        ctx.beginPath();
+        if (fpm.on) { ctx.moveTo(fpm.x, fpm.y + 14 * S); ctx.lineTo(pt.x, pt.y - 12 * S); }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 12 * S, 0, Math.PI * 2);
+        ctx.moveTo(pt.x - 18 * S, pt.y); ctx.lineTo(pt.x - 6 * S, pt.y);
+        ctx.moveTo(pt.x + 6 * S, pt.y); ctx.lineTo(pt.x + 18 * S, pt.y);
+        ctx.stroke();
+        ctx.font = `${12 * S}px ${FONT}`;
+        ctx.fillStyle = HUD_DIM;
+        ctx.textAlign = 'left';
+        ctx.fillText('CCIP', pt.x + 20 * S, pt.y + 12 * S);
+      }
+    }
+    // release cue under the flight path marker
+    if (targeting && targeting.weaponMode === 'bomb' && targeting.locked && fpm.on) {
+      ctx.textAlign = 'center';
+      ctx.font = `bold ${15 * S}px ${FONT}`;
+      ctx.fillStyle = blink ? RED : AMBER;
+      ctx.fillText('RELEASE', fpm.x, fpm.y + 34 * S);
+    }
+  }
+
   _targetInfo(targeting, p, S) {
     const ctx = this.ctx;
     const t = targeting.target;

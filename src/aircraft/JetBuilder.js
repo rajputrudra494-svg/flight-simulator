@@ -39,10 +39,21 @@ function sharedMaterials(spec, quality) {
   } else {
     const { map, normalMap } = getLiveryTextures(spec.id, spec.livery, size, withNormal);
     const metalFinish = spec.livery.finish === 'metal';
+    // radar-absorbent coatings are dark and matte with almost no metallic sheen
+    const ram = spec.livery.finish === 'ram';
+    const flatShading = !!spec.design.faceted;
     body = new THREE.MeshStandardMaterial({
       map, normalMap, normalScale: new THREE.Vector2(0.55, 0.55),
-      roughness: metalFinish ? 0.3 : 0.52, metalness: metalFinish ? 0.78 : 0.32, name: 'body',
+      roughness: metalFinish ? 0.3 : ram ? 0.68 : 0.52, metalness: metalFinish ? 0.78 : ram ? 0.12 : 0.32, name: 'body', flatShading,
     });
+    // capable GPUs: a thin clear lacquer catches the sky along the panel lines
+    if (quality.postFX && !ram && !metalFinish) {
+      body.dispose();
+      body = new THREE.MeshPhysicalMaterial({
+        map, normalMap, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.5, metalness: 0.3, name: 'body',
+        clearcoat: 0.18, clearcoatRoughness: 0.45, flatShading,
+      });
+    }
     wing = body;
     tail = body;
   }
@@ -58,16 +69,17 @@ function sharedMaterials(spec, quality) {
   const bright = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.22, metalness: 0.95, side: THREE.DoubleSide });
   const glass = new THREE.MeshStandardMaterial({
     color: spec.goldCanopy ? 0x8a6a2a : 0x26323c, roughness: 0.04, metalness: 0.95,
-    transparent: true, opacity: spec.goldCanopy ? 0.62 : 0.42, envMapIntensity: 1.6, depthWrite: false,
+    transparent: true, opacity: spec.goldCanopy ? 0.62 : 0.42, envMapIntensity: 1.6, depthWrite: false, flatShading: !!spec.design.faceted,
   });
   const cockpit = new THREE.MeshStandardMaterial({ color: 0x2a2d30, roughness: 0.85 });
   const helmet = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, roughness: 0.4, metalness: 0.1 });
   const suit = new THREE.MeshStandardMaterial({ color: 0x4a5236, roughness: 0.9 });
   const missileBody = new THREE.MeshStandardMaterial({ color: 0xd6d6d0, roughness: 0.45, metalness: 0.2 });
   const missileNose = new THREE.MeshStandardMaterial({ color: 0x3a3a38, roughness: 0.3, metalness: 0.4 });
+  const bombBody = new THREE.MeshStandardMaterial({ color: 0x5d6656, roughness: 0.6, metalness: 0.25 });
   const tyre = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
   const strut = new THREE.MeshStandardMaterial({ color: 0xc8c8c4, roughness: 0.3, metalness: 0.8 });
-  const out = { body, wing, tail, hump, pod, intake, dark, metal, metalDark, bright, glass, cockpit, helmet, suit, missileBody, missileNose, tyre, strut };
+  const out = { body, wing, tail, hump, pod, intake, dark, metal, metalDark, bright, glass, cockpit, helmet, suit, missileBody, missileNose, bombBody, tyre, strut };
   matCache.set(key, out);
   return out;
 }
@@ -216,6 +228,32 @@ function makeVaporMaterial(mode) {
 const missileGeoCache = {};
 export function getMissileGeometry(type) {
   if (missileGeoCache[type]) return missileGeoCache[type];
+  if (type === 'bomb') {
+    // 2,000 lb class: 3.9 m long, 46 cm body, ogive nose, JDAM tail kit with X fins
+    const L = 3.88, r = 0.229;
+    const prof = [[0.001, -L / 2], [r * 0.45, -L / 2 + 0.25], [r * 0.82, -L / 2 + 0.6], [r, -L / 2 + 1.0], [r, L / 2 - 1.15], [r * 0.82, L / 2 - 0.55], [r * 0.7, L / 2 - 0.05], [0.001, L / 2]];
+    const body = new THREE.LatheGeometry(prof.map(([rr, z]) => new THREE.Vector2(rr, z)), 16);
+    body.rotateX(Math.PI / 2);
+    const parts = [body.toNonIndexed()];
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+      const fin = new THREE.BoxGeometry(0.012, r * 1.5, 0.5);
+      fin.translate(0, r * 0.75 + r * 0.55, L / 2 - 0.3);
+      fin.rotateZ(a);
+      parts.push(fin.toNonIndexed());
+      // strakes along the body
+      const strake = new THREE.BoxGeometry(0.01, r * 0.35, 1.1);
+      strake.translate(0, r * 1.1, 0.1);
+      strake.rotateZ(a);
+      parts.push(strake.toNonIndexed());
+    }
+    const bodyGeo = mergeGeometries(parts);
+    bodyGeo.computeVertexNormals();
+    const nose = new THREE.SphereGeometry(r * 0.3, 8, 6);
+    nose.translate(0, 0, -L / 2 + 0.05);
+    missileGeoCache[type] = { body: bodyGeo, nose, length: L, radius: r };
+    return missileGeoCache[type];
+  }
   const L = type === 'ir' ? 2.9 : 3.65;
   const r = type === 'ir' ? 0.064 : 0.09;
   const bodyParts = [];
@@ -250,7 +288,7 @@ export function getMissileGeometry(type) {
 export function makeMissileMesh(type, mats) {
   const g = getMissileGeometry(type);
   const grp = new THREE.Group();
-  const b = new THREE.Mesh(g.body, mats.missileBody);
+  const b = new THREE.Mesh(g.body, type === 'bomb' ? mats.bombBody : mats.missileBody);
   const n = new THREE.Mesh(g.nose, mats.missileNose);
   grp.add(b, n);
   grp.userData.length = g.length;
@@ -298,7 +336,7 @@ export class JetModel {
     };
     const Z = (sections) => sections.map((s) => ({ ...s, z: s.z - cg }));
     const ZW = (stations) => stations.map((s) => ({ ...s, z: s.z - cg }));
-    const radial = airliner ? (quality.terrainSegments >= 32 ? 44 : 28) : quality.terrainSegments >= 32 ? 32 : 20;
+    const radial = d.radial || (airliner ? (quality.terrainSegments >= 32 ? 44 : 28) : quality.terrainSegments >= 32 ? 32 : 20);
     const fusSecs = d.fuselage;
     const uvZ = [fusSecs[0].z - cg, fusSecs[fusSecs.length - 1].z - cg];
 
@@ -320,7 +358,7 @@ export class JetModel {
       this.droopAngle = THREE.MathUtils.degToRad(d.droopNose.angle);
       this.droopValue = opts.gear ? 1 : 0;
     } else {
-      add(loft(Z(fusSecs), { radial, smooth: 4, capStart: !d.noseIntake, capEnd: true, uvZ }), mats.body);
+      add(loft(Z(fusSecs), { radial, smooth: d.faceted ? 1 : 4, capStart: !d.noseIntake, capEnd: true, uvZ }), mats.body);
     }
     if (d.noseIntake) {
       // MiG-21 style: open ring with a translating shock cone
@@ -337,7 +375,11 @@ export class JetModel {
       root.add(lip);
     }
     if (d.hump) add(loft(Z(d.hump.sections), { radial, smooth: 4 }), mats.hump || mats.body);
-    if (d.spine) add(loft(Z(d.spine), { radial: 16, smooth: 3 }), mats.body);
+    if (d.spine) add(loft(Z(d.spine), { radial: d.radial || 16, smooth: d.faceted ? 1 : 3 }), mats.body);
+    // extra closed bodies: blended centre sections, chines, engine humps
+    for (const b of d.bodies || []) {
+      for (const side of b.x ? [1, -1] : [1]) add(loft(Z(b.sections).map((sec) => ({ ...sec, x: (b.x || 0) * side })), { radial: b.radial || d.radial || 24, smooth: b.smooth ?? 3 }), mats.body);
+    }
 
     // Intakes / nacelles
     const intakeLoft = (sections, xoff = 0) => {
@@ -360,6 +402,13 @@ export class JetModel {
     if (d.nacelles) {
       intakeLoft(d.nacelles.sections, d.nacelles.x);
       intakeLoft(d.nacelles.sections, -d.nacelles.x);
+    }
+    // translating inlet spikes (SR-71)
+    for (const sp of d.spikes || []) {
+      for (const side of sp.x ? [1, -1] : [1]) {
+        const cone = lathe([[0.001, 0], [sp.r * 0.35, sp.len * 0.3], [sp.r * 0.8, sp.len * 0.75], [sp.r, sp.len]], 24);
+        add(cone, mats.body).position.set(sp.x * side, sp.y, sp.z - cg);
+      }
     }
     // closed fairings such as landing-gear sponsons
     for (const f of d.fairings || []) {
@@ -387,7 +436,8 @@ export class JetModel {
         { z: cz1, w: c.w * 0.3, top: c.h * 0.15, bot: 0.1, y: c.y },
       ];
       this.canopyInfo = { c, cz0, cz1, cl, canopySecs };
-      this.canopy = add(loft(canopySecs, { radial: 24, smooth: 4 }), mats.glass, root, false);
+      // faceted designs get flat glass panels
+      this.canopy = add(loft(canopySecs, { radial: d.faceted ? 6 : 24, smooth: d.faceted ? 1 : 4 }), mats.glass, root, false);
       this.canopy.renderOrder = 5;
       if (c.frameAt > 0) {
         const fz = cz0 + cl * c.frameAt;
@@ -396,9 +446,12 @@ export class JetModel {
         // interior draws its own windscreen bow and this one is hidden there
         this.canopyFrame = add(loft([frameSec(-0.05, 1.04), frameSec(0.05, 1.04)], { radial: 24, smooth: 1, capStart: true, capEnd: true }), mats.body, root, false);
       }
-      const tub = new THREE.Mesh(new THREE.BoxGeometry(c.w * 1.5, 0.35, cl * 0.7), mats.cockpit);
-      tub.position.set(0, c.y + 0.02, cz0 + cl * 0.5);
-      root.add(tub);
+      // cockpit tub under the glass (big flight decks sit inside the fuselage)
+      if (!c.noTub) {
+        const tub = new THREE.Mesh(new THREE.BoxGeometry(c.w * 1.5, 0.35, cl * 0.7), mats.cockpit);
+        tub.position.set(0, c.y + 0.02, cz0 + cl * 0.5);
+        root.add(tub);
+      }
       this.pilot = new THREE.Group();
       const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), mats.helmet);
       head.position.set(0, eyeY - 0.02, eyeZ + 0.08);
@@ -609,7 +662,12 @@ export class JetModel {
       const grp = new THREE.Group();
       grp.position.set(nz.x, nz.y, z0);
       root.add(grp);
-      if (nz.type === '2d') {
+      if (nz.type === 'slot') {
+        // shielded exhaust: a dark slot flush with the upper skin (B-2, F-117)
+        const slot = new THREE.Mesh(new THREE.BoxGeometry(nz.w || r * 2.6, nz.h || r * 0.3, nz.len), mats.metalDark);
+        slot.position.z = nz.len * 0.5;
+        grp.add(slot);
+      } else if (nz.type === '2d') {
         const sec = (z, k) => ({ z, w: r * 1.2 * k, top: r * 0.75 * k, bot: r * 0.75 * k, n: 8 });
         add(loft([sec(0, 1.0), sec(nz.len * 0.6, 0.98), sec(nz.len, 0.85)], { radial: 24, smooth: 2, capStart: false, capEnd: false }), mats.metal, grp);
         add(loft([sec(nz.len, 0.78), sec(nz.len * 0.5, 0.72)], { radial: 24, smooth: 1, capStart: false, capEnd: true }), mats.metalDark, grp, false);
@@ -627,6 +685,11 @@ export class JetModel {
       const glow = new THREE.Mesh(new THREE.CircleGeometry(r * (nz.type === '2d' ? 0.7 : 0.8), 20), glowMat);
       glow.position.z = nz.len * 0.45;
       if (nz.type === '2d') glow.scale.set(1.5, 0.9, 1);
+      if (nz.type === 'slot') {
+        glow.scale.set((nz.w || r * 2.6) / (r * 1.7), nz.len / (r * 1.7), 1);
+        glow.position.set(0, (nz.h || r * 0.3) * 0.5 + 0.01, nz.len * 0.5);
+        glow.rotation.x = -Math.PI / 2;
+      }
       grp.add(glow);
       // flame: outer plume + narrow inner core
       const flameGeo = new THREE.CylinderGeometry(r * 0.12, r * 0.78, 1, 16, 12, true);
@@ -648,7 +711,7 @@ export class JetModel {
       if (nz.type === '2d') core.scale.set(1.4, 0.7, 1);
       grp.add(core);
       const exit = new THREE.Vector3(nz.x, nz.y, z0 + nz.len);
-      this.flames.push({ flame, core, glow, glowMat, r, len: nz.len, baseScale: flame.scale.clone(), coreScale: core.scale.clone(), exit });
+      this.flames.push({ flame, core, glow, glowMat, r, len: nz.len, baseScale: flame.scale.clone(), coreScale: core.scale.clone(), exit, dry: !!spec.flight.noAB || nz.type === 'slot', slot: nz.type === 'slot' });
       this.exhausts.push(exit);
     }
 
@@ -690,11 +753,37 @@ export class JetModel {
           }
         }
         const mm = makeMissileMesh(py.type, mats);
-        const missileY = y - 0.12;
+        const missileY = py.type === 'bomb' ? y : y - 0.12;
         mm.position.set(x, missileY, z);
         mm.visible = !py.internal;
         root.add(mm);
         this.missileSlots.push({ mesh: mm, type: py.type, internal: !!py.internal, local: new THREE.Vector3(x, missileY, z), used: false });
+      }
+    }
+
+    // Weapons-bay doors (bombers): hinged along their outer edges, they swing
+    // open while bombs are released
+    this.bayDoors = [];
+    this.bayOpen = 0;
+    for (const bay of d.bays || []) {
+      for (const side of bay.x ? [1, -1] : [1]) {
+        const cx = bay.x * side, len = bay.z1 - bay.z0;
+        for (const half of [-1, 1]) {
+          const pivot = new THREE.Group();
+          pivot.position.set(cx + (half * bay.w) / 2, bay.y - 0.03, (bay.z0 + bay.z1) / 2 - cg);
+          const door = new THREE.Mesh(new THREE.BoxGeometry(bay.w / 2, 0.05, len), mats.body);
+          door.position.x = (-half * bay.w) / 4;
+          door.castShadow = shadows;
+          pivot.add(door);
+          // dark bay interior, only seen with the doors open
+          root.add(pivot);
+          this.bayDoors.push({ pivot, half });
+        }
+        const well = new THREE.Mesh(new THREE.BoxGeometry(bay.w * 0.96, 0.6, len * 0.98), mats.dark);
+        well.position.set(cx, bay.y + 0.28, (bay.z0 + bay.z1) / 2 - cg);
+        well.visible = false;
+        root.add(well);
+        this.bayDoors.push({ well });
       }
     }
 
@@ -949,7 +1038,9 @@ export class JetModel {
     const pitch = input.pitch || 0, roll = input.roll || 0, yaw = input.yaw || 0;
     const flapsDown = input.gear ? 1 : 0;
     // positive angle = trailing edge down (or right for rudders)
-    set(this.controls.ailerons, (c) => -deg(18) * roll * c.side);
+    // flying wings mix pitch into the elevons
+    const elevon = this.spec.design.wing.elevon ? deg(14) * pitch : 0;
+    set(this.controls.ailerons, (c) => -deg(18) * roll * c.side - elevon);
     set(this.controls.flaps, (c) => deg(this.airliner ? 30 : 20) * flapsDown - deg(this.airliner ? 0 : 8) * roll * c.side);
     set(this.controls.stabs, (c) => -deg(20) * pitch - deg(6) * roll * c.side);
     set(this.controls.elevators, () => -deg(22) * pitch);
@@ -963,6 +1054,15 @@ export class JetModel {
       rv.sleeve.position.z = rv.travel * rev;
     }
     if (this.chuteRig) this._animateChute(dt, input.chute || 0, input.chuteState || 'stowed');
+    if (this.bayDoors.length) {
+      const tgt = input.bay ? 1 : 0;
+      this.bayOpen += Math.sign(tgt - this.bayOpen) * Math.min(Math.abs(tgt - this.bayOpen), dt / 1.1);
+      const a = deg(88) * this.bayOpen;
+      for (const b of this.bayDoors) {
+        if (b.well) b.well.visible = this.bayOpen > 0.02;
+        else b.pivot.rotation.z = b.half * a;
+      }
+    }
 
     // variable sweep schedule: wings fold back as Mach rises
     if (this.sweep) {
@@ -999,9 +1099,11 @@ export class JetModel {
       const len = (0.7 + ab * 3.4 + thr * 0.5) * f.r * 2.2 * (0.94 + 0.06 * Math.sin(this.time * 47));
       f.flame.scale.set(f.baseScale.x, f.baseScale.y, len);
       f.core.scale.set(f.coreScale.x, f.coreScale.y, len * 0.62);
-      f.flame.visible = ab > 0.01 || thr > 0.7;
-      f.core.visible = ab > 0.05;
-      const glow = 0.4 + thr * 1.2 + ab * 4;
+      // dry turbofans show no flame, just a hot nozzle
+      f.flame.visible = !f.dry && (ab > 0.01 || thr > 0.7);
+      f.core.visible = !f.dry && ab > 0.05;
+      // shielded slots hide the hot section almost completely
+      const glow = f.slot ? 0.04 + thr * 0.06 : f.dry ? 0.25 + thr * 0.5 : 0.4 + thr * 1.2 + ab * 4;
       f.glowMat.color.setRGB(1.0 * glow, 0.42 * glow, 0.14 * glow);
     }
     // gear deploy animation
@@ -1059,7 +1161,7 @@ export class JetModel {
   // Drag chute: open canopy (orange/white gores) on risers trailing from the tail;
   // twin canopies for the big Flankers and Felons.
   _buildChute(area, d, cg) {
-    const twin = area >= 40;
+    const twin = area >= 40 && !this.spec.flight.brakes.chuteSingle;
     const r = Math.sqrt((twin ? area / 2 : area) / Math.PI);
     const riser = r * 2.4 + 3;
     const nz = (d.nozzles && d.nozzles[0]) || { y: 0 };
@@ -1147,6 +1249,7 @@ export class JetModel {
   }
 
   dispose() {
+    this.disposed = true;
     if (this.chuteRig && this.chuteRig.detached) {
       const g = this.chuteRig.group;
       g.parent?.remove(g);

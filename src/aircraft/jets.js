@@ -6,6 +6,7 @@
 import { S, W, NOSE } from './designHelpers.js';
 import { FIGHTERS, FIGHTER_ORDER } from './fighters.js';
 import { AIRLINERS, AIRLINER_ORDER } from './airliners.js';
+import { HEAVIES, HEAVY_ORDER } from './heavies.js';
 
 export const JETS = {
   f16: {
@@ -237,6 +238,7 @@ export const JETS = {
     health: 140,
     livery: { base: '#7f858c', belly: '#868c93', camo: [{ color: '#6f757c', count: 30, size: 120, type: 'splinter' }, { color: '#8d939a', count: 20, size: 90, type: 'splinter' }], panelAlpha: 0.22, seed: 71, weather: 0.6 },
     insignia: 'star', tailCode: 'FF', goldCanopy: true,
+    stealth: 0.25,
     design: {
       length: 18.9, cg: 11.2,
       fuselage: [
@@ -264,15 +266,15 @@ export const JETS = {
   },
 };
 
-Object.assign(JETS, FIGHTERS, AIRLINERS);
+Object.assign(JETS, FIGHTERS, HEAVIES, AIRLINERS);
 
 // Military jets roughly in unlock order, then the airliners.
 const BASE_ORDER = ['f16', 'fa18', 'mig29', 'typhoon', 'su35', 'f22'];
 export const MILITARY_ORDER = [
-  'f16', 'tejas', 'mig21', 'a10', 'gripen', 'fa18', 'mirage', 'mig29', 'rafale',
-  'f15', 'typhoon', 'f14', 'su35', 'f35', 'j20', 'su57', 'f22',
+  'f16', 'tejas', 'mig21', 'f4', 'a10', 'gripen', 'fa18', 'mirage', 'mig29', 'rafale',
+  'f15', 'typhoon', 'f14', 'mig31', 'su35', 'f35', 'j20', 'su57', 'f22',
 ].filter((id) => BASE_ORDER.includes(id) || FIGHTER_ORDER.includes(id));
-export { AIRLINER_ORDER };
-export const JET_ORDER = [...MILITARY_ORDER, ...AIRLINER_ORDER];
+export { AIRLINER_ORDER, HEAVY_ORDER };
+export const JET_ORDER = [...MILITARY_ORDER, ...HEAVY_ORDER, ...AIRLINER_ORDER];
 
 export const isCivil = (spec) => !!(spec && spec.civil);

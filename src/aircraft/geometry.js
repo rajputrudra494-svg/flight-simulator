@@ -183,14 +183,28 @@ export class Surface {
     return out;
   }
 
+  // span samples over [s0,s1]: uniform, plus every station inside the range
+  // so kinks in the planform (cranked or sawtooth edges) stay sharp
+  spanSamples(s0, s1, ns) {
+    const out = [];
+    for (let i = 0; i <= ns; i++) out.push(s0 + ((s1 - s0) * i) / ns);
+    for (let i = 1; i < this.st.length - 1; i++) {
+      const s = this.len[i] / this.total;
+      if (s > s0 + 1e-4 && s < s1 - 1e-4 && !out.some((v) => Math.abs(v - s) < 1e-4)) out.push(s);
+    }
+    return out.sort((a, b) => a - b);
+  }
+
   // Closed solid panel over span [s0,s1] and chord [c0,c1]
-  panel(s0, s1, c0, c1, ns = 6, nc = 12) {
+  panel(s0, s1, c0, c1, ns0 = 6, nc = 12) {
     const parts = [];
     const p = { x: 0, y: 0, z: 0 };
+    const spans = this.spanSamples(s0, s1, ns0);
+    const ns = spans.length - 1;
     const sideGeo = (side) => {
       const pos = [], uv = [], idx = [];
       for (let i = 0; i <= ns; i++) {
-        const s = s0 + ((s1 - s0) * i) / ns;
+        const s = spans[i];
         for (let j = 0; j <= nc; j++) {
           // cosine spacing concentrates samples at the leading edge
           const u = j / nc;
@@ -248,7 +262,7 @@ export class Surface {
     const chordCap = (c) => {
       const pos = [], uv = [], idx = [];
       for (let i = 0; i <= ns; i++) {
-        const s = s0 + ((s1 - s0) * i) / ns;
+        const s = spans[i];
         this.point(s, c, 1, p);
         pos.push(p.x, p.y, p.z);
         uv.push(p.x * 0.05 + 0.5, p.z * 0.05 + 0.5);

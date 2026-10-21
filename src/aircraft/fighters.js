@@ -62,6 +62,7 @@ export const FIGHTERS = {
     health: 130,
     livery: { base: '#6f767d', belly: '#737a81', camo: [{ color: '#7b828a', count: 22, size: 120, type: 'splinter' }], panelAlpha: 0.18, seed: 91, weather: 0.5 },
     insignia: 'star', tailCode: 'HL', goldCanopy: true,
+    stealth: 0.3,
     design: {
       length: 15.7, cg: 9.2,
       fuselage: [
@@ -317,6 +318,7 @@ export const FIGHTERS = {
       panelAlpha: 0.24, seed: 131, weather: 0.7,
     },
     insignia: 'redstar', tailCode: '51',
+    stealth: 0.45,
     design: {
       length: 20.1, cg: 12.2,
       fuselage: [
@@ -361,6 +363,7 @@ export const FIGHTERS = {
     health: 145,
     livery: { base: '#5d646b', belly: '#646b72', camo: [{ color: '#6e757c', count: 26, size: 110, type: 'splinter' }], panelAlpha: 0.2, seed: 137, weather: 0.6 },
     insignia: 'china', tailCode: '78', goldCanopy: true,
+    stealth: 0.4,
     design: {
       length: 20.4, cg: 12.6,
       fuselage: [
@@ -469,6 +472,102 @@ export const FIGHTERS = {
       lights: { wingtip: 8.75, tail: [2.85, 2.2, 15.2] },
     },
   },
+
+  mig31: {
+    id: 'mig31',
+    name: 'MiG-31BM Foxhound',
+    role: 'Mach 2.8 interceptor',
+    category: 'fighter',
+    description: 'A two-seat heavyweight built to catch Blackbirds: huge box intakes, two D-30F6 turbofans and a radar that tracks targets 200 km out. Its engines pull harder the faster it goes — Mach 2.83 up high — but it turns like the 36-tonne brick it is.',
+    unlock: 7,
+    stats: { speed: 0.99, agility: 0.48, firepower: 0.86, armor: 0.82 },
+    flight: {
+      brakes: { chute: 30 },
+      mass: 36000, wingArea: 61.6, thrustDry: 186, thrustAB: 304, cd0: 0.016, k: 0.144,
+      clAlpha: 3.6, maxAoA: 20, maxG: 5, pitchRate: 18, rollRate: 150, yawRate: 14, maxMach: 2.83, maxIas: 420, ramK: 0.65, ceiling: 20600,
+    },
+    weapons: { gunAmmo: 260, missiles: 6, flares: 32, gunRate: 140, gunDamage: 7 },
+    health: 150,
+    livery: { base: '#9aa3aa', belly: '#a7b0b6', camo: [{ color: '#8a939a', count: 16, size: 120, type: 'blob' }], panelAlpha: 0.34, seed: 157, weather: 1.3 },
+    insignia: 'redstar', tailCode: '24',
+    design: {
+      length: 22.7, cg: 13.0,
+      fuselage: [
+        ...NOSE(4.6, 0.62, 0.62, 0.55, 0, -0.1),
+        S(6.5, 0.72, 0.78, 0.62, 0.05, 2.2), S(9.0, 0.82, 0.72, 0.6, 0.1, 2.4), S(13.0, 0.95, 0.62, 0.55, 0.1, 2.8),
+        S(18.0, 1.0, 0.58, 0.5, 0.1, 3.0), S(21.0, 0.95, 0.5, 0.45, 0.05, 2.6), S(22.2, 0.8, 0.42, 0.4, 0.05, 2.2),
+      ],
+      spine: [S(8.0, 0.3, 0.86, 0.1, 0.35), S(10.0, 0.5, 0.78, 0.1, 0.35), S(15, 0.55, 0.66, 0.1, 0.32), S(19.5, 0.3, 0.5, 0.1, 0.3)],
+      // MiG-25 style rectangular intakes
+      sideIntakes: { x: 1.45, sections: [S(6.6, 0.55, 0.75, 0.75, 0.0, 6, 6), S(8.5, 0.6, 0.78, 0.78, -0.02, 5, 5), S(13.5, 0.6, 0.72, 0.7, -0.05, 4), S(18.5, 0.55, 0.6, 0.6, -0.05, 3)] },
+      canopy: { z0: 3.9, z1: 8.6, w: 0.45, h: 0.62, y: 0.55, frameAt: 0.48 },
+      wing: { stations: [W(1.9, 0.45, 11.0, 7.0, 0.045), W(6.73, 0.0, 16.0, 2.3, 0.035)], aileron: [0.55, 0.95, 0.75], flap: [0.08, 0.5, 0.74] },
+      stab: { stations: [W(1.6, 0.0, 17.8, 3.6, 0.04), W(4.4, -0.15, 20.6, 1.2, 0.035)], pivot: 0.35 },
+      vtails: [
+        { x: 1.45, cant: 8, stations: [W(0, 0.6, 16.0, 4.6, 0.05), W(0, 4.3, 19.6, 1.8, 0.05)], rudder: [0.08, 0.9, 0.72] },
+        { x: -1.45, cant: -8, stations: [W(0, 0.6, 16.0, 4.6, 0.05), W(0, 4.3, 19.6, 1.8, 0.05)], rudder: [0.08, 0.9, 0.72] },
+      ],
+      ventrals: [{ x: 1.3, cant: -10, stations: [W(0, -0.5, 17.5, 2.2, 0.05), W(0, -1.3, 18.6, 1.0, 0.05)] }],
+      nozzles: [{ x: 0.72, y: 0.0, z: 21.6, r: 0.66, len: 1.8, type: 'round' }, { x: -0.72, y: 0.0, z: 21.6, r: 0.66, len: 1.8, type: 'round' }],
+      // four R-33s semi-recessed under the belly, R-73s under the wings
+      pylons: [{ x: 0.75, y: -0.75, z: 11.0, type: 'radar', body: true }, { x: 0.75, y: -0.75, z: 15.5, type: 'radar', body: true }, { x: 4.0, y: 0.05, z: 13.8, type: 'ir' }],
+      gear: { nose: { z: 4.4, y: -0.55, len: 1.9, r: 0.38, twin: true }, main: { z: 13.2, x: 1.7, y: -0.6, len: 1.8, r: 0.45, twin: true } },
+      pilotEye: { y: 1.05, z: 5.4 },
+      gun: { x: 1.2, y: 0.1, z: 10.5 },
+      lights: { wingtip: 6.73, tail: [1.75, 4.3, 19.4] },
+    },
+  },
+
+  f4: {
+    id: 'f4',
+    name: 'F-4E Phantom II',
+    role: 'Cold War multirole',
+    category: 'fighter',
+    description: 'The legend: two smoky J79s, a 20 mm gun in the nose, cranked-up outer wings and drooping stabilators. Brutally fast in a straight line and tough as nails, but it bleeds energy in a turning fight and loves to depart at high alpha.',
+    unlock: 2,
+    stats: { speed: 0.86, agility: 0.6, firepower: 0.84, armor: 0.76 },
+    flight: {
+      brakes: { chute: 16 },
+      mass: 18500, wingArea: 49.2, thrustDry: 106, thrustAB: 159, cd0: 0.022, k: 0.13,
+      clAlpha: 3.8, maxAoA: 25, maxG: 7.3, pitchRate: 20, rollRate: 170, yawRate: 14, maxMach: 2.23, ceiling: 18300,
+    },
+    weapons: { gunAmmo: 640, missiles: 8, flares: 30, gunRate: 100, gunDamage: 6 },
+    health: 125,
+    livery: {
+      base: '#bfae86', belly: '#d1d4d4',
+      camo: [{ color: '#525c3b', count: 26, size: 150, type: 'blob' }, { color: '#717b4f', count: 20, size: 120, type: 'blob' }],
+      panelAlpha: 0.4, seed: 163, weather: 1.5,
+    },
+    insignia: 'star', tailCode: 'SJ',
+    design: {
+      length: 19.2, cg: 11.0,
+      // aft fuselage sweeps up to the tail
+      fuselage: [
+        ...NOSE(4.0, 0.55, 0.58, 0.55, 0, -0.08),
+        S(5.5, 0.66, 0.7, 0.62, 0.02, 2.2), S(8.0, 0.82, 0.75, 0.62, 0.05, 2.4), S(11.0, 1.0, 0.68, 0.58, 0.05, 2.8),
+        S(14.5, 0.95, 0.62, 0.55, 0.08, 2.8), S(17.0, 0.65, 0.5, 0.4, 0.2, 2.4), S(19.2, 0.2, 0.25, 0.15, 0.35, 2),
+      ],
+      spine: [S(7.6, 0.25, 0.86, 0.1, 0.35), S(9.0, 0.42, 0.78, 0.1, 0.35), S(13, 0.45, 0.66, 0.1, 0.32), S(16.0, 0.25, 0.5, 0.1, 0.3)],
+      sideIntakes: { x: 1.15, sections: [S(5.6, 0.36, 0.62, 0.62, -0.05, 4, 4), S(7.0, 0.42, 0.65, 0.62, -0.05, 3.4), S(10.5, 0.4, 0.55, 0.5, -0.05, 3), S(13.0, 0.3, 0.4, 0.35, 0.0, 2.6)] },
+      canopy: { z0: 3.6, z1: 8.6, w: 0.44, h: 0.6, y: 0.55, frameAt: 0.38 },
+      // 12 deg dihedral on the outer panels
+      wing: {
+        stations: [W(1.4, -0.35, 8.4, 6.2, 0.05), W(4.1, -0.3, 10.6, 3.6, 0.045), W(5.85, 0.07, 12.2, 2.0, 0.04)],
+        aileron: [0.3, 0.7, 0.76], flap: [0.04, 0.3, 0.76],
+      },
+      // 23 deg anhedral stabilators
+      stab: { stations: [W(0.55, 0.55, 15.6, 3.0, 0.04), W(2.9, -0.45, 17.6, 1.3, 0.035)], pivot: 0.35 },
+      vtails: [{ x: 0, cant: 0, stations: [W(0, 0.6, 13.4, 4.4, 0.05), W(0, 3.3, 16.9, 1.7, 0.05)], rudder: [0.1, 0.8, 0.72] }],
+      ventrals: [],
+      nozzles: [{ x: 0.55, y: -0.1, z: 16.8, r: 0.45, len: 1.3, type: 'round' }, { x: -0.55, y: -0.1, z: 16.8, r: 0.45, len: 1.3, type: 'round' }],
+      // four Sparrows semi-recessed in the belly, Sidewinders in pairs on the inner pylons
+      pylons: [{ x: 0.75, y: -0.65, z: 9.0, type: 'radar', body: true }, { x: 0.75, y: -0.65, z: 13.0, type: 'radar', body: true }, { x: 2.75, y: -0.75, z: 10.6, type: 'ir' }, { x: 3.25, y: -0.75, z: 10.8, type: 'ir' }],
+      gear: { nose: { z: 3.9, y: -0.55, len: 1.8, r: 0.32, twin: true }, main: { z: 11.5, x: 2.7, y: -0.35, len: 1.9, r: 0.42 } },
+      pilotEye: { y: 1.0, z: 4.9 },
+      gun: { x: 0, y: -0.55, z: 1.6 },
+      lights: { wingtip: 5.85, tail: [0, 3.3, 16.8] },
+    },
+  },
 };
 
-export const FIGHTER_ORDER = ['tejas', 'mig21', 'a10', 'gripen', 'mirage', 'rafale', 'f15', 'f14', 'f35', 'j20', 'su57'];
+export const FIGHTER_ORDER = ['tejas', 'mig21', 'f4', 'a10', 'gripen', 'mirage', 'rafale', 'f15', 'f14', 'mig31', 'f35', 'j20', 'su57'];

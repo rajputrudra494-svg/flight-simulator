@@ -8,6 +8,7 @@ import { Weapons } from '../combat/Weapons.js';
 import { GroundUnit } from '../combat/GroundUnits.js';
 import { Effects } from '../fx/Effects.js';
 import { TrailSystem } from '../fx/Trails.js';
+import { Wreckage } from '../fx/Wreckage.js';
 
 const _n = new THREE.Vector3();
 const _d = new THREE.Vector3();
@@ -30,6 +31,7 @@ export class Battle {
     this.trails = new TrailSystem(this.scene);
     this.effects = new Effects(this, this.quality);
     this.weapons = new Weapons(this, this.quality);
+    this.wreckage = new Wreckage(this, this.quality);
     this.listeners = {};
     this.player = null;
     const sunLight = world.sunColor.clone().multiplyScalar(0.65).add(world.skyAmbient.clone().multiplyScalar(0.45));
@@ -108,7 +110,7 @@ export class Battle {
 
   // Background airliner traffic flying wide circuits around a point.
   spawnTraffic(count, { center, radius = 14000, altMin = 1500, altMax = 10500, rand = Math.random } = {}) {
-    const ids = ['a320', 'b737', 'b777', 'b747', 'a380', 'a320', 'b737', 'b777'];
+    const ids = ['a320', 'b737', 'b787', 'b777', 'b747', 'a380', 'a320', 'b737', 'b787'];
     const c = center || new THREE.Vector3(this.map.airbase.x, 0, this.map.airbase.z);
     const out = [];
     for (let i = 0; i < count; i++) {
@@ -170,6 +172,7 @@ export class Battle {
     }
     this._supersonicEffects(dt);
     this.weapons.update(dt);
+    this.wreckage.update(dt);
     this.effects.update(dt, this.camera);
     this.trails.update(dt, this.camera);
     // remove destroyed AI aircraft after their trails have faded
@@ -237,6 +240,7 @@ export class Battle {
     this.aircraft = [];
     this.ground = [];
     this.weapons.dispose();
+    this.wreckage.dispose();
     this.effects.dispose();
     this.trails.dispose();
   }

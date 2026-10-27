@@ -14,7 +14,7 @@ const _n = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _vd = new THREE.Vector3();
 
-const AIRLINES = ['NOVA', 'SKYWARD', 'AZURE', 'SAHARA', 'NORDIC', 'SPEEDBIRD', 'HORIZON'];
+const AIRLINES = ['NOVA', 'SKYWARD', 'AZURE', 'SAHARA', 'NORDIC', 'SPEEDBIRD', 'HORIZON', 'TERRA', 'LUMA', 'CARIOCA', 'ATLANTICA', 'SOLAR', 'MERIDIAN'];
 
 export class Battle {
   constructor(game, world) {
@@ -110,7 +110,7 @@ export class Battle {
 
   // Background airliner traffic flying wide circuits around a point.
   spawnTraffic(count, { center, radius = 14000, altMin = 1500, altMax = 10500, rand = Math.random } = {}) {
-    const ids = ['a320', 'b737', 'b787', 'b777', 'b747', 'a380', 'a320', 'b737', 'b787'];
+    const ids = ['a320', 'b737', 'b787', 'b777', 'b747', 'a380', 'a321', 'a220', 'e195', 'b757', 'b767', 'a330', 'a350', 'a320', 'b737'];
     const c = center || new THREE.Vector3(this.map.airbase.x, 0, this.map.airbase.z);
     const out = [];
     for (let i = 0; i < count; i++) {

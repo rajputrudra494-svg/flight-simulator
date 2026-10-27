@@ -215,6 +215,69 @@ function desertHeight(n, n2) {
   };
 }
 
+// Harbour City: a deep-water harbour between two narrow coastal flats packed
+// with towers, steep jungle mountains behind them and an airport on a
+// reclaimed island to the west.
+export function harbourChannelZ(x) {
+  return 300 * Math.sin(x / 4200) + 160 * Math.sin(x / 1500 + 0.8);
+}
+
+function harbourHeight(n, n2) {
+  return (x, z) => {
+    const cz = harbourChannelZ(x);
+    const d = Math.abs(z - cz) + n2.noise(x / 2500, z / 2500) * 180;
+    let h = 7 + n.fbm(x / 3000, z / 3000, 3) * 3;
+    // steep peaks rise behind the flats on both shores
+    h += smoothstep(1900, 3500, d) * (260 + n.ridged(x / 3400, z / 3400, 5) * 760) + smoothstep(2800, 6500, d) * 280;
+    // the harbour channel and the open sea at both ends
+    h = lerp(h, -38, smoothstep(820, 640, d));
+    h = lerp(h, -45, smoothstep(10200, 12200, Math.abs(x) + n2.noise(z / 3000, 5.5) * 800));
+    // reclaimed airport island in the west
+    const ad = Math.hypot((x + 15200) / 2900, (z - 400) / 1150);
+    if (ad < 1.25) h = Math.max(h, lerp(9, -45, smoothstep(1.0, 1.25, ad)));
+    return h;
+  };
+}
+
+// Rivergate: an old European capital on a winding river: rolling farmland
+// around a historic centre, a business district of towers on the west bank.
+export function rivergateRiverX(z) {
+  return 200 * Math.sin(z / 2600) + 450 * Math.sin(z / 5200 + 1.1);
+}
+
+function rivergateHeight(n, n2) {
+  return (x, z) => {
+    let h = 64 + n.fbm(x / 9000, z / 9000, 4) * 40 + n2.fbm(x / 2000, z / 2000, 3) * 5;
+    const dr = Math.abs(x - rivergateRiverX(z));
+    // a broad valley with the river cut into its floor
+    h = lerp(h, 39, smoothstep(2600, 260, dr));
+    h = lerp(h, 22, smoothstep(72, 48, dr));
+    // wooded hills on the horizon
+    h += smoothstep(9500, 16000, Math.hypot(x, z)) * (60 + n.ridged(x / 5000, z / 5000, 4) * 380);
+    return h;
+  };
+}
+
+// Lakeshore: a gridded prairie city on the shore of a great lake, a river
+// through downtown and the skyline standing right on the water.
+export function lakeCoastX(z) {
+  return 2600 + 350 * Math.sin(z / 4500) + 120 * Math.sin(z / 1300 + 0.4);
+}
+
+function lakeshoreHeight(n, n2) {
+  return (x, z) => {
+    let h = 182 + n.fbm(x / 12000, z / 12000, 3) * 8 + n2.fbm(x / 2500, z / 2500, 2) * 2;
+    const cx = lakeCoastX(z);
+    h = lerp(h, 158 - smoothstep(cx, cx + 6000, x) * 18, smoothstep(cx - 40, cx + 260, x));
+    // the river through downtown
+    const dr = Math.abs(z - (-300 + 60 * Math.sin(x / 700)));
+    if (x < cx && x > -2200) h = lerp(h, 168, smoothstep(42, 24, dr) * smoothstep(-2200, -1900, x));
+    // moraine hills far to the west
+    h += smoothstep(-17000, -27000, x) * n.fbm(x / 6000, z / 6000, 4) * 120;
+    return h;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Map definitions
 // ---------------------------------------------------------------------------
@@ -339,6 +402,7 @@ export const MAPS = {
     clouds: { density: 0.7, base: 1700, top: 2700 },
     trees: { kind: 'broadleaf', density: 0.7, maxAlt: 1100 },
     groundAmbient: '#4f5a44',
+    airport: 'civil', localTime: '10:40',
     city: {
       x: -400, z: 1200, radius: 6400, cell: 120, street: 18, seed: 9137, style: 'metro', lowRise: 16, parks: 0.07,
       districts: [{ x: -300, z: 1500, r: 1300, h: 380 }, { x: 2700, z: 450, r: 950, h: 230 }, { x: -2700, z: -1700, r: 1050, h: 170 }, { x: 1200, z: 3600, r: 900, h: 120 }],
@@ -367,6 +431,7 @@ export const MAPS = {
     clouds: { density: 0.25, base: 2800, top: 3600 },
     trees: { kind: 'tropical', density: 0.35, maxAlt: 120 },
     groundAmbient: '#9a7a52',
+    airport: 'civil', localTime: '19:05',
     city: {
       x: 1200, z: 0, radius: 7200, cell: 120, street: 20, seed: 4411, style: 'gulf', lowRise: 13, parks: 0.05,
       shape: (x) => x < 6200,
@@ -375,9 +440,93 @@ export const MAPS = {
       exclude: [{ x: 1250, z: -350, r: 120 }, { x: -1550, z: 4400, r: 90 }, { x: 3600, z: 2600, r: 160 }],
     },
   },
+  harbour: {
+    id: 'harbour',
+    runway: { condition: 'wet', mu: 0.5 },
+    name: 'Harbour City',
+    subtitle: 'Supertall towers between the mountains and the sea',
+    seed: 8521,
+    heightFn: harbourHeight,
+    airbaseNear: [-15000, 400],
+    lighting: { elevation: 34, azimuth: 205, turbidity: 4.2, rayleigh: 1.4, mie: 0.006, mieG: 0.84, exposure: 0.43 },
+    fog: { density: 1 / 30000, falloff: 1 / 1300, haze: 0.26 },
+    water: { level: 0, deep: '#0d3542', shallow: '#3c8a86', absorb: 7 },
+    palette: {
+      sand: '#c9b993', grass1: '#3f6a2a', grass2: '#5f8236', forest: '#1e3d1a',
+      rock1: '#6a675e', rock2: '#46443e', snow: '#f2f4f7', dirt: '#6e5a3e',
+    },
+    snowLine: 99999, beach: 5, forest: 0.95, fields: 0.0, strata: 0.0,
+    clouds: { density: 0.85, base: 900, top: 1900 },
+    trees: { kind: 'tropical', density: 1.0, maxAlt: 1100 },
+    groundAmbient: '#4a5a40',
+    airport: 'civil', localTime: '14:20',
+    city: {
+      x: 0, z: 0, radius: 7600, cell: 110, street: 16, seed: 6619, style: 'metro', lowRise: 24, parks: 0.04, pitched: 0.05,
+      shape: (x) => Math.abs(x) < 9800,
+      districts: [{ x: -900, z: -1250, r: 1500, h: 430 }, { x: 1800, z: 1450, r: 1400, h: 380 }, { x: -4200, z: -1300, r: 1300, h: 300 }, { x: 4600, z: 1400, r: 1300, h: 260 }, { x: 0, z: 0, r: 6000, h: 90 }],
+      port: { x: 6500, z: 1300, r: 1700 },
+      landmarks: [{ type: 'supertall', x: 700, z: -1300, h: 520 }, { type: 'twin', x: -2600, z: -1450, h: 380 }, { type: 'needle', x: 2600, z: 2100, h: 330 }],
+      exclude: [{ x: 700, z: -1300, r: 120 }, { x: -2600, z: -1450, r: 90 }, { x: 2600, z: 2100, r: 70 }],
+    },
+  },
+  rivergate: {
+    id: 'rivergate',
+    runway: { condition: 'dry', mu: 0.6 },
+    name: 'Rivergate',
+    subtitle: 'Old-town rooftops, a cathedral dome and bridges over the river',
+    seed: 3307,
+    heightFn: rivergateHeight,
+    airbaseNear: [11500, 2500],
+    lighting: { elevation: 22, azimuth: 150, turbidity: 3.0, rayleigh: 1.5, mie: 0.005, mieG: 0.82, exposure: 0.45 },
+    fog: { density: 1 / 34000, falloff: 1 / 1500, haze: 0.2 },
+    water: { level: 30, deep: '#1d3a3e', shallow: '#4a7a70', absorb: 5 },
+    palette: {
+      sand: '#b9a77e', grass1: '#567a32', grass2: '#86914a', forest: '#26421f',
+      rock1: '#6c675e', rock2: '#46433e', snow: '#f2f4f7', dirt: '#6e5a3e', fieldA: '#c8b25a', fieldB: '#7a5e3c', fieldC: '#9cb854',
+    },
+    snowLine: 99999, beach: 3, forest: 0.6, fields: 1.0, strata: 0.0,
+    clouds: { density: 0.9, base: 1500, top: 2500 },
+    trees: { kind: 'broadleaf', density: 0.9, maxAlt: 900 },
+    groundAmbient: '#4e5a3c',
+    airport: 'civil', localTime: '09:15',
+    city: {
+      x: 0, z: 0, radius: 7200, cell: 120, street: 16, seed: 1789, style: 'euro', lowRise: 18, parks: 0.08, pitched: 0.9,
+      districts: [{ x: -5600, z: -900, r: 900, h: 240 }, { x: 0, z: 0, r: 2600, h: 60 }, { x: 3600, z: 3000, r: 900, h: 140 }],
+      landmarks: [{ type: 'dome', x: 0, z: 650, r: 42, h: 112 }, { type: 'needle', x: 2700, z: -2700, h: 368 }, { type: 'stadium', x: -2900, z: 3700, r: 130, h: 40 }],
+      exclude: [{ x: 0, z: 650, r: 160 }, { x: 2700, z: -2700, r: 70 }, { x: -2900, z: 3700, r: 170 }],
+      bridges: [-3000, -1700, -450, 1500, 2600, 3900].map((z) => ({ type: 'arch', z, x0: rivergateRiverX(z) - 82, x1: rivergateRiverX(z) + 82, deckY: 41, w: 22 })),
+    },
+  },
+  lakeshore: {
+    id: 'lakeshore',
+    runway: { condition: 'dry', mu: 0.6 },
+    name: 'Lakeshore',
+    subtitle: 'A grid skyline standing on the shore of a great lake',
+    seed: 4417,
+    heightFn: lakeshoreHeight,
+    airbaseNear: [-13000, -2500],
+    lighting: { elevation: 28, azimuth: 120, turbidity: 2.8, rayleigh: 1.3, mie: 0.004, mieG: 0.82, exposure: 0.42 },
+    fog: { density: 1 / 38000, falloff: 1 / 1600, haze: 0.18 },
+    water: { level: 176, deep: '#16394b', shallow: '#4c8a96', absorb: 8 },
+    palette: {
+      sand: '#d2c294', grass1: '#5c7d36', grass2: '#879448', forest: '#2a4624',
+      rock1: '#6c675e', rock2: '#46433e', snow: '#f2f4f7', dirt: '#6e5a3e',
+    },
+    snowLine: 99999, beach: 4, forest: 0.4, fields: 0.8, strata: 0.0,
+    clouds: { density: 0.75, base: 1900, top: 2900 },
+    trees: { kind: 'broadleaf', density: 0.75, maxAlt: 600 },
+    groundAmbient: '#4f5a44',
+    airport: 'civil', localTime: '16:30',
+    city: {
+      x: -1200, z: 0, radius: 7800, cell: 120, street: 18, seed: 1871, style: 'metro', lowRise: 13, parks: 0.09, pitched: 0.65,
+      districts: [{ x: 1500, z: -600, r: 1300, h: 420 }, { x: 1900, z: 2400, r: 800, h: 230 }, { x: 900, z: -3200, r: 900, h: 150 }, { x: -2600, z: 0, r: 4000, h: 40 }],
+      landmarks: [{ type: 'supertall', x: 900, z: -900, h: 442 }, { type: 'twin', x: 1900, z: 400, h: 340 }, { type: 'stadium', x: 2150, z: 1500, r: 125, h: 40 }],
+      exclude: [{ x: 900, z: -900, r: 120 }, { x: 1900, z: 400, r: 90 }, { x: 2150, z: 1500, r: 165 }],
+    },
+  },
 };
 
-export const MAP_ORDER = ['pacific', 'canyon', 'alps', 'arctic', 'highlands', 'metro', 'desert'];
+export const MAP_ORDER = ['pacific', 'canyon', 'alps', 'arctic', 'highlands', 'metro', 'desert', 'harbour', 'rivergate', 'lakeshore'];
 
 // Time-of-day presets that missions or free flight can apply on top of a map.
 export const TIME_PRESETS = {

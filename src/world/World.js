@@ -12,6 +12,8 @@ import { Clouds } from './Clouds.js';
 import { Vegetation } from './Vegetation.js';
 import { Airbase } from './Airbase.js';
 import { CityRenderer } from './City.js';
+import { JETS } from '../aircraft/jets.js';
+import { mulberry32 } from './noise.js';
 
 export class World {
   constructor(renderer, quality, mapId, timeKey = 'default', weather = 1) {
@@ -114,6 +116,8 @@ export class World {
     this.clouds.setLighting(cloudSun, cloudAmb, lightDir);
     this.vegetation = new Vegetation(this.map, quality, scene);
     this.airbase = new Airbase(this.map, quality, scene);
+    this.airbase.setNight(this.nightFactor);
+    this._parkAircraft();
     const tu = this.terrain.material.userData.uniforms;
     tu.uNight.value = this.nightFactor;
     if (this.map.city) {
@@ -127,6 +131,14 @@ export class World {
     this.renderer.toneMappingExposure = lighting.exposure;
     // condensation is lit by the sun (pale blue moonlight at night)
     this.vaporLight = night ? new THREE.Color(0.25, 0.3, 0.42) : this.sunColor.clone().multiplyScalar(0.9 + elevFactor * 0.8).add(skyAmb.clone().multiplyScalar(0.8));
+  }
+
+  // a few aircraft parked on the other stands: airliners at civil airports, fighters on air bases
+  _parkAircraft() {
+    const ids = this.airbase.civil ? ['a320', 'b787', 'a350', 'b737', 'a321', 'e195', 'b777', 'a220'] : ['f16', 'fa18', 'f15', 'typhoon', 'gripen', 'su30', 'rafale'];
+    const r = mulberry32((this.def.seed * 13 + 5) >>> 0);
+    const pick = ids.map((id) => [r(), id]).sort((a, b) => a[0] - b[0]).map((x) => JETS[x[1]]).filter(Boolean);
+    this.airbase.addParked(pick);
   }
 
   _configureNightSky(sky, cityGlow) {

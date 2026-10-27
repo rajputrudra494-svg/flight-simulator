@@ -279,10 +279,13 @@ export const FIGHTER_COCKPITS = {
   },
 };
 
+// derived types share the flight deck of their family
+const COCKPIT_FAMILY = { a321: 'a320', a220: 'a320', e195: 'a320', b757: 'b737', b767: 'b787', a330: 'a380', a350: 'a380', su30: 'su35', f15e: 'f15', mig35: 'mig29', j10: 'typhoon' };
+
 export function airlinerProfile(id) {
-  return AIRLINER_COCKPITS[id] || AIRLINER_COCKPITS.a320;
+  return AIRLINER_COCKPITS[id] || AIRLINER_COCKPITS[COCKPIT_FAMILY[id]] || AIRLINER_COCKPITS.a320;
 }
 
 export function fighterProfile(id) {
-  return FIGHTER_COCKPITS[id] || FIGHTER_COCKPITS.f16;
+  return FIGHTER_COCKPITS[id] || FIGHTER_COCKPITS[COCKPIT_FAMILY[id]] || FIGHTER_COCKPITS.f16;
 }

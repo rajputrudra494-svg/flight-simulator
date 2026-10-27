@@ -196,14 +196,29 @@ export function getRunwayTexture(lengthPx = 2048, heading = 90) {
       ctx.fillStyle = `rgba(${g},${g},${g + 2},${0.25 + rand() * 0.3})`;
       ctx.fillRect(rand() * W, rand() * H, 1 + rand() * 2, 1 + rand() * 3);
     }
-    // tyre marks near both ends
+    // resurfaced patches in a slightly different asphalt
+    for (let i = 0; i < 18; i++) {
+      const g = 52 + Math.floor(rand() * 14);
+      ctx.fillStyle = `rgba(${g},${g},${g + 2},0.35)`;
+      ctx.fillRect(rand() * W * 0.8, rand() * H, 10 + rand() * 30, 30 + rand() * 160);
+    }
+    // rubber deposits: a dark smear in the touchdown zones of both ends
     for (const end of [0.12, 0.88]) {
-      for (let i = 0; i < 60; i++) {
-        ctx.fillStyle = `rgba(15,15,15,${0.05 + rand() * 0.12})`;
-        const x = W * 0.5 + (rand() - 0.5) * W * 0.35;
-        ctx.fillRect(x, H * end + (rand() - 0.5) * H * 0.12, 2 + rand() * 3, 20 + rand() * 120);
+      const grd = ctx.createLinearGradient(0, H * (end - 0.09), 0, H * (end + 0.09));
+      grd.addColorStop(0, 'rgba(12,12,12,0)');
+      grd.addColorStop(0.5, 'rgba(12,12,12,0.38)');
+      grd.addColorStop(1, 'rgba(12,12,12,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(W * 0.28, H * (end - 0.09), W * 0.44, H * 0.18);
+      for (let i = 0; i < 160; i++) {
+        ctx.fillStyle = `rgba(15,15,15,${0.05 + rand() * 0.14})`;
+        const x = W * 0.5 + (rand() - 0.5) * W * 0.4;
+        ctx.fillRect(x, H * end + (rand() - 0.5) * H * 0.14, 1.5 + rand() * 3, 20 + rand() * 140);
       }
     }
+    // transverse grooving that drains the water away
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    for (let y = 0; y < H; y += 3) ctx.fillRect(6, y, W - 12, 1);
     const pxPerM = H / 3000;
     ctx.fillStyle = '#e8e8e2';
     // edge lines
@@ -257,25 +272,77 @@ export function getRunwayTexture(lengthPx = 2048, heading = 90) {
 }
 
 export function getConcreteTexture() {
+  // apron concrete: slabs that each weathered differently, aggregate grain,
+  // sealed joints, hairline cracks, oil and fuel stains and tyre scuffs
   return cached('concrete', () => {
-    const S = 256;
+    const S = 512;
     const canvas = makeCanvas(S, S);
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#8e8e88';
-    ctx.fillRect(0, 0, S, S);
     const rand = mulberry32(17);
-    for (let i = 0; i < 4000; i++) {
-      const g = 110 + Math.floor(rand() * 50);
-      ctx.fillStyle = `rgba(${g},${g},${g - 4},0.35)`;
-      ctx.fillRect(rand() * S, rand() * S, 1 + rand() * 2, 1 + rand() * 2);
+    const slab = 128;
+    for (let y = 0; y < S; y += slab) {
+      for (let x = 0; x < S; x += slab) {
+        const g = 136 + Math.floor(rand() * 22);
+        ctx.fillStyle = `rgb(${g},${g},${g - 5})`;
+        ctx.fillRect(x, y, slab, slab);
+        // a soft wash of darker weathering across some slabs
+        const grd = ctx.createLinearGradient(x, y, x + slab, y + slab);
+        grd.addColorStop(0, `rgba(60,58,52,${(rand() * 0.12).toFixed(3)})`);
+        grd.addColorStop(1, 'rgba(60,58,52,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(x, y, slab, slab);
+      }
     }
-    ctx.strokeStyle = 'rgba(40,40,40,0.5)';
-    ctx.lineWidth = 1.5;
-    for (let i = 0; i <= S; i += 64) {
+    for (let i = 0; i < 26000; i++) {
+      const g = 90 + Math.floor(rand() * 90);
+      ctx.fillStyle = `rgba(${g},${g},${g - 4},${(0.15 + rand() * 0.3).toFixed(2)})`;
+      ctx.fillRect(rand() * S, rand() * S, 1 + rand() * 1.6, 1 + rand() * 1.6);
+    }
+    // oil and fuel stains
+    for (let i = 0; i < 14; i++) {
+      const x = rand() * S, y = rand() * S, r = 6 + rand() * 26;
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grd.addColorStop(0, `rgba(25,22,18,${(0.25 + rand() * 0.25).toFixed(2)})`);
+      grd.addColorStop(1, 'rgba(25,22,18,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.ellipse(x, y, r, r * (0.5 + rand() * 0.5), rand() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // tyre scuffs
+    ctx.strokeStyle = 'rgba(20,20,20,0.12)';
+    for (let i = 0; i < 10; i++) {
+      ctx.lineWidth = 3 + rand() * 5;
+      ctx.beginPath();
+      const x = rand() * S, y = rand() * S;
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + (rand() - 0.5) * 200, y + (rand() - 0.5) * 200, x + (rand() - 0.5) * 300, y + (rand() - 0.5) * 300);
+      ctx.stroke();
+    }
+    // hairline cracks
+    ctx.strokeStyle = 'rgba(35,35,32,0.45)';
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < 18; i++) {
+      let x = rand() * S, y = rand() * S;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 6; k++) {
+        x += (rand() - 0.5) * 40;
+        y += (rand() - 0.5) * 40;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // sealed expansion joints between the slabs
+    ctx.strokeStyle = 'rgba(28,28,26,0.75)';
+    ctx.lineWidth = 2.2;
+    for (let i = 0; i <= S; i += slab) {
       ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, S); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(S, i); ctx.stroke();
     }
-    return canvasTexture(canvas, { repeat: true });
+    const tex = canvasTexture(canvas, { repeat: true });
+    tex.anisotropy = 8;
+    return tex;
   });
 }
 

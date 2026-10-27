@@ -44,7 +44,7 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 8).join('\n')));
 await page.addInitScript((q) => {
-  localStorage.setItem('strike-horizon-save-v1', JSON.stringify({ completed: {}, settings: { quality: q, unlockAll: true, showFps: true, dynamicRes: false, voice: false }, jet: 'f16' }));
+  localStorage.setItem('strike-horizon-save-v1', JSON.stringify({ completed: {}, settings: { quality: q, unlockAll: true, showFps: true, dynamicRes: false, voice: false, story: false }, jet: 'f16' }));
 }, quality);
 
 const t0 = Date.now();

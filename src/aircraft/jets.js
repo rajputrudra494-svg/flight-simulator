@@ -7,6 +7,7 @@ import { S, W, NOSE } from './designHelpers.js';
 import { FIGHTERS, FIGHTER_ORDER } from './fighters.js';
 import { AIRLINERS, AIRLINER_ORDER } from './airliners.js';
 import { HEAVIES, HEAVY_ORDER } from './heavies.js';
+import { makeVariants, VARIANT_MILITARY, VARIANT_AIRLINERS } from './variants.js';
 
 export const JETS = {
   f16: {
@@ -267,14 +268,16 @@ export const JETS = {
 };
 
 Object.assign(JETS, FIGHTERS, HEAVIES, AIRLINERS);
+Object.assign(JETS, makeVariants(JETS));
 
 // Military jets roughly in unlock order, then the airliners.
 const BASE_ORDER = ['f16', 'fa18', 'mig29', 'typhoon', 'su35', 'f22'];
 export const MILITARY_ORDER = [
-  'f16', 'tejas', 'mig21', 'f4', 'a10', 'gripen', 'fa18', 'mirage', 'mig29', 'rafale',
-  'f15', 'typhoon', 'f14', 'mig31', 'su35', 'f35', 'j20', 'su57', 'f22',
-].filter((id) => BASE_ORDER.includes(id) || FIGHTER_ORDER.includes(id));
-export { AIRLINER_ORDER, HEAVY_ORDER };
-export const JET_ORDER = [...MILITARY_ORDER, ...HEAVY_ORDER, ...AIRLINER_ORDER];
+  'f16', 'tejas', 'mig21', 'f4', 'a10', 'gripen', 'j10', 'fa18', 'mirage', 'mig29', 'mig35', 'rafale',
+  'f15', 'f15e', 'typhoon', 'f14', 'mig31', 'su35', 'su30', 'f35', 'j20', 'su57', 'f22',
+].filter((id) => BASE_ORDER.includes(id) || FIGHTER_ORDER.includes(id) || VARIANT_MILITARY.includes(id));
+const ALL_AIRLINERS = [...AIRLINER_ORDER.slice(0, 2), ...VARIANT_AIRLINERS.slice(0, 4), ...AIRLINER_ORDER.slice(2, 3), ...VARIANT_AIRLINERS.slice(4), ...AIRLINER_ORDER.slice(3)];
+export { ALL_AIRLINERS as AIRLINER_ORDER, HEAVY_ORDER };
+export const JET_ORDER = [...MILITARY_ORDER, ...HEAVY_ORDER, ...ALL_AIRLINERS];
 
 export const isCivil = (spec) => !!(spec && spec.civil);

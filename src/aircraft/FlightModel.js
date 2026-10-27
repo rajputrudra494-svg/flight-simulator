@@ -189,8 +189,18 @@ export class FlightModel {
     // reheated turbojets gain a little ram thrust; high-bypass turbofans lose
     // thrust as airspeed builds (why heavy jets accelerate so slowly). Turbo-
     // ramjets (the SR-71's J58 with its spike inlets) keep gaining past Mach 1.4.
-    let ram = f.noAB ? 1 - 0.35 * Math.min(mach, 0.9) : 1 + 0.12 * Math.min(mach, 1.6);
-    if (f.ramK) ram += f.ramK * Math.max(0, Math.min(mach, f.ramMach || f.maxMach) - 1.4);
+    // Low-bypass reheated engines recover a lot of ram pressure: at Mach 2 and
+    // altitude a fighter's engine makes about its sea-level static thrust again,
+    // which is what lets it reach its real top speed up high.
+    let ram;
+    if (f.noAB) ram = 1 - 0.35 * Math.min(mach, 0.9);
+    else if (f.ramK) {
+      ram = 1 + 0.12 * Math.min(mach, 1.6) + f.ramK * Math.max(0, Math.min(mach, f.ramMach || f.maxMach) - 1.4);
+    } else {
+      const m = Math.min(mach, f.maxMach + 0.15);
+      const ab = Math.max(0, (throttle - 0.9) / 0.1);
+      ram = 1 + (0.12 + 0.2 * ab) * m + (0.08 + 0.13 * ab) * m * m;
+    }
     return t * 1000 * lapse * ram;
   }
 
@@ -276,7 +286,10 @@ export class FlightModel {
     CD += 0.07 * this.airbrake + 0.08 * this.spoilers;
     if (this.bs.aeroBrake && this.onGround) CD += f.cd0 * this.bs.aeroBrake * this.brakePressure;
     // structural airspeed limit (SR-71: about 450 KEAS): drag climbs steeply past it
-    if (f.maxIas && this.ias > f.maxIas) CD += ((this.ias - f.maxIas) / f.maxIas) ** 2 * 6;
+    // supersonic fighters without their own figure are held near 800 knots
+    // indicated (about Mach 1.2 on the deck), like the real jets
+    const maxIas = f.maxIas || (!f.noAB && f.maxMach > 1.1 ? 412 : 0);
+    if (maxIas && this.ias > maxIas) CD += ((this.ias - maxIas) / maxIas) ** 2 * 6;
     const S = f.wingArea;
 
     _f.set(0, -G * m, 0);

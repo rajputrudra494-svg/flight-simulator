@@ -13,6 +13,7 @@ import { World } from '../world/World.js';
 import { Battle } from '../game/Battle.js';
 import { Mission } from '../game/Mission.js';
 import { ATC } from '../game/ATC.js';
+import { Prologue } from '../game/Prologue.js';
 import { MISSIONS } from '../game/missions.js';
 import { CameraRig } from '../game/CameraRig.js';
 import { Targeting } from '../game/Targeting.js';
@@ -443,6 +444,7 @@ export class Game {
     this.hud.clear();
     this.radio.reset();
     this._closeAtcMenu();
+    this._endPrologue();
     if (this.atc) { this.atc.dispose(); this.atc = null; }
     const world = await this._buildWorld(def.map, def.time || 'default', 1);
     this._setLoading(true, 'Deploying forces…', 0.6);
@@ -482,6 +484,34 @@ export class Game {
     this.atc = new ATC(this, battle, mission, this.radio);
     this._setLoading(true, 'Streaming terrain…', 0.8);
     await nextFrame();
+    // the pre-flight story: walk-out, start-up, ATC, taxi and line-up first
+    if (this.settings.story !== false && !def.noStory && battle.player) {
+      this.prologue = new Prologue(this, battle, mission);
+      world.warmup(this.camera);
+      this._setLoading(false);
+      this.hud.clear();
+      this.input.pressed.clear();
+      this.state = 'intro';
+      return;
+    }
+    this._beginPlay(false);
+  }
+
+  // the story hands the aircraft over (on the runway, or in the air)
+  finishIntro(prologue) {
+    if (this.prologue !== prologue) return;
+    const runway = !!prologue.start.runway;
+    prologue.dispose();
+    this.prologue = null;
+    this.clock.getDelta();
+    this._beginPlay(true, runway);
+    this.hud.showCenter('YOU HAVE CONTROL', 2.5);
+    if (runway) this.hud.showFlash('FULL THRUST FOR TAKE-OFF', 3);
+  }
+
+  _beginPlay(afterStory, runway = false) {
+    const { def, free } = this.currentMission;
+    const battle = this.battle, world = this.world, mission = this.mission;
     this.rig.setMode('chase');
     this.rig.setTarget(battle.player);
     this.rig.update(0.016, null, world.map);
@@ -497,8 +527,8 @@ export class Game {
     if (this._touchWanted() && window.innerHeight > window.innerWidth) this.hud.showFlash('TURN YOUR DEVICE SIDEWAYS', 3);
     else if (this._touchWanted() && this.settings.gyro && !this.gyro.lastEvent) this.hud.showFlash('TAP TILT TO START TILT STEERING', 3);
     this.state = 'playing';
-    this.hud.showCenter(free ? 'FREE FLIGHT' : def.name.toUpperCase(), 3);
-    this.atc.start();
+    if (!afterStory) this.hud.showCenter(free ? 'FREE FLIGHT' : def.name.toUpperCase(), 3);
+    this.atc.start({ story: afterStory, runway });
     for (const text of mission.pendingRadio) this.atc.missionRadio(text);
     mission.pendingRadio.length = 0;
   }
@@ -576,6 +606,30 @@ export class Game {
     this.hud.showCenter('NO REVERSERS OR CHUTE - USE B TO BRAKE', 1.4);
   }
 
+  _endPrologue() {
+    if (this.prologue) { this.prologue.dispose(); this.prologue = null; }
+  }
+
+  // pre-flight story: only the player's aircraft, the civil traffic and the
+  // effects move; the mission clock and the enemies wait for the hand-over
+  _updateIntro(dt) {
+    const battle = this.battle;
+    this.prologue.update(dt);
+    if (this.state !== 'intro' || !this.prologue) return;
+    for (const ac of battle.aircraft) {
+      if (ac.team !== 'civil' || !ac.alive) continue;
+      if (ac.ai) ac.ai.update(dt, battle);
+      ac.update(dt, battle);
+    }
+    battle.effects.update(dt, this.camera);
+    battle.trails.update(dt, this.camera);
+    this.world.update(dt, this.camera, this.prologue.focus);
+    this.dom.fxBlack.style.opacity = '0';
+    this.dom.fxRed.style.opacity = '0';
+    this.dom.fxWhite.style.opacity = '0';
+    this._render(dt);
+  }
+
   onPlayerSpawned(ac) {
     if (this.rig) this.rig.setTarget(ac);
     if (this.targeting) this.targeting.target = null;
@@ -635,6 +689,7 @@ export class Game {
     this.touch.show(false);
     this.audio.silence();
     this.radio.reset();
+    this._endPrologue();
     if (this.atc) { this.atc.dispose(); this.atc = null; }
     this.hud.clear();
     await this._loadMenuWorld();
@@ -661,14 +716,15 @@ export class Game {
     }
     if (this.state === 'boot' || !this.world) return;
     // the radio keeps talking through the results screen; it is reset on launch/quit
-    if (this.state === 'playing' || this.state === 'results') this.radio.update(dt);
+    if (this.state === 'playing' || this.state === 'results' || this.state === 'intro') this.radio.update(dt);
     if (this.state === 'menu' || ((this.state === 'results' || this.state === 'paused') && !this.battle)) {
       this._updateMenuCamera(dt);
       this.world.update(dt, this.camera, this.menuFocus);
       this._render(dt);
       return;
     }
-    if (this.state === 'playing') this._updatePlaying(dt);
+    if (this.state === 'intro' && this.prologue) this._updateIntro(dt);
+    else if (this.state === 'playing') this._updatePlaying(dt);
     else if (this.state === 'results' && this.battle) {
       // keep the world animating behind the results screen
       this.battle.update(dt * 0.5);

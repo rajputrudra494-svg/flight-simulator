@@ -185,7 +185,7 @@ export const HEAVIES = {
     stats: { speed: 0.82, agility: 0.24, firepower: 1.0, armor: 0.85 },
     flight: {
       brakes: { mu: 0.46, heatCap: 4.6, chute: 60 },
-      mass: 200000, wingArea: 293, thrustDry: 549, thrustAB: 980, cd0: 0.012, k: 0.11,
+      mass: 200000, wingArea: 293, thrustDry: 549, thrustAB: 980, cd0: 0.0102, k: 0.11,
       clAlpha: 4.6, maxAoA: 16, maxG: 2.0, pitchRate: 8, rollRate: 40, yawRate: 5, maxMach: 2.05, maxIas: 335, ceiling: 16000, flapCL: 0.6,
     },
     weapons: { ...BOMBS(24, 'KAB-500S guided bombs', 'KAB-500S'), flares: 72 },

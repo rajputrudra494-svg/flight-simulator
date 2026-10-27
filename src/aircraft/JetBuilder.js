@@ -10,6 +10,7 @@ import { loft, Surface, mirrorX, lathe, mergeGeometries, sampleSection } from '.
 import { getLiveryTextures, getRoundelTexture, getTextTexture, getAirlinerTextures, getGlowTexture } from './jetTextures.js';
 import { getNoiseTexture } from '../world/textures.js';
 import { buildCockpit } from './Cockpit.js';
+import { bakeSeatedPilot, buildCockpitWell } from '../world/People.js';
 
 const matCache = new Map();
 
@@ -79,9 +80,58 @@ function sharedMaterials(spec, quality) {
   const bombBody = new THREE.MeshStandardMaterial({ color: 0x5d6656, roughness: 0.6, metalness: 0.25 });
   const tyre = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
   const strut = new THREE.MeshStandardMaterial({ color: 0xc8c8c4, roughness: 0.3, metalness: 0.8 });
+  // service wear: soot from the nozzles, belly grime and streaks, and a paint
+  // finish whose sheen breaks up like the real thing
+  if (quality.textureSize >= 1024) {
+    const w = spec.livery.weather ?? 1;
+    if (airliner) {
+      addWeathering(body, spec, 0.35, false);
+      addWeathering(tail, spec, 0.3, false);
+      addWeathering(wing, spec, 0.7, false);
+      if (hump) addWeathering(hump, spec, 0.35, false);
+    } else addWeathering(body, spec, 0.55 + 0.45 * w, true);
+  }
   const out = { body, wing, tail, hump, pod, intake, dark, metal, metalDark, bright, glass, cockpit, helmet, suit, missileBody, missileNose, bombBody, tyre, strut };
   matCache.set(key, out);
   return out;
+}
+
+// Weathering layer injected into a paint material: exhaust soot creeping
+// forward from the nozzles, grime and fluid streaks along the belly running
+// aft with the airflow, faded paint patches and a roughness that varies across
+// the skin so reflections break up instead of looking like plastic.
+function addWeathering(mat, spec, strength, soot) {
+  const d = spec.design;
+  const nz = d.nozzles && d.nozzles.length ? Math.max(...d.nozzles.map((n) => n.z)) - d.cg : 1e4;
+  const u = {
+    uWNoise: { value: getNoiseTexture() },
+    uWSoot: { value: new THREE.Vector2(nz, soot ? 1 : 0) },
+    uWStrength: { value: strength },
+  };
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWObj;\nvarying vec3 vWNrm;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWObj = position;\nvWNrm = normal;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D uWNoise;
+        uniform vec2 uWSoot;
+        uniform float uWStrength;
+        varying vec3 vWObj;
+        varying vec3 vWNrm;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        vec4 wn = texture2D( uWNoise, vWObj.zx * vec2( 0.045, 0.11 ) );
+        vec4 wn2 = texture2D( uWNoise, vWObj.zy * vec2( 0.55, 0.9 ) + vWObj.x * 0.13 + 0.37 );
+        float wSoot = uWSoot.y * smoothstep( uWSoot.x - 3.8, uWSoot.x + 0.2, vWObj.z ) * ( 0.55 + 0.45 * wn.r );
+        float wBelly = smoothstep( 0.15, -0.65, normalize( vWNrm ).y );
+        float wStreak = smoothstep( 0.56, 0.86, wn2.g ) * wBelly;
+        float wFade = ( wn.b - 0.5 ) * 0.09;
+        diffuseColor.rgb *= ( 1.0 - uWStrength * ( wSoot * 0.6 + wStreak * 0.18 + wBelly * 0.05 ) ) * ( 1.0 + wFade * uWStrength );`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = clamp( roughnessFactor * ( 0.8 + 0.4 * wn2.a ) + wSoot * 0.25 * uWStrength, 0.04, 1.0 );`);
+  };
+  mat.customProgramCacheKey = () => 'weathered-v1' + (mat.isMeshPhysicalMaterial ? 'p' : 's') + (mat.flatShading ? 'f' : '');
 }
 
 // --- Afterburner flame shader ------------------------------------------------
@@ -446,24 +496,55 @@ export class JetModel {
         // interior draws its own windscreen bow and this one is hidden there
         this.canopyFrame = add(loft([frameSec(-0.05, 1.04), frameSec(0.05, 1.04)], { radial: 24, smooth: 1, capStart: true, capEnd: true }), mats.body, root, false);
       }
-      // cockpit tub under the glass (big flight decks sit inside the fuselage)
+      // cockpit under the glass: the dark well with its sill, glare shield,
+      // HUD and consoles (big flight decks sit inside the fuselage instead)
       if (!c.noTub) {
-        const tub = new THREE.Mesh(new THREE.BoxGeometry(c.w * 1.5, 0.35, cl * 0.7), mats.cockpit);
-        tub.position.set(0, c.y + 0.02, cz0 + cl * 0.5);
-        root.add(tub);
+        // the opening follows the fuselage's own curvature, just proud of the skin
+        const zc = cz0 + cl * 0.55, rz = cl * 0.4, wx = c.w * 0.92;
+        const skinY = (z, x) => {
+          const sec = sampleSection(d.fuselage, z + cg);
+          const n = sec.n || 2;
+          const u = Math.min(1, Math.abs(x) / Math.max(0.05, sec.w));
+          return (sec.y ?? 0) + sec.top * Math.pow(Math.max(0, 1 - Math.pow(u, n)), 1 / n);
+        };
+        const NZ = 28, NX = 14, pos = [], idx = [], edgeL = [], edgeR = [];
+        for (let i = 0; i <= NZ; i++) {
+          const z = zc - rz + (2 * rz * i) / NZ;
+          const hw = Math.max(0.002, wx * Math.sqrt(Math.max(0, 1 - ((z - zc) / rz) ** 2)));
+          for (let j = 0; j <= NX; j++) {
+            const x = -hw + (2 * hw * j) / NX;
+            pos.push(x, skinY(z, x) + 0.012, z);
+          }
+          edgeL.push(new THREE.Vector3(-hw, skinY(z, -hw) + 0.02, z));
+          edgeR.push(new THREE.Vector3(hw, skinY(z, hw) + 0.02, z));
+        }
+        for (let i = 0; i < NZ; i++) {
+          for (let j = 0; j < NX; j++) {
+            const a = i * (NX + 1) + j, b = a + 1, cc = a + NX + 1, e = cc + 1;
+            idx.push(a, cc, b, b, cc, e);
+          }
+        }
+        const wg = new THREE.BufferGeometry();
+        wg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        wg.setIndex(idx);
+        wg.computeVertexNormals();
+        add(wg, mats.dark, root, false);
+        // canopy rail around the opening
+        const rail = new THREE.CatmullRomCurve3([...edgeR, ...edgeL.reverse()], true);
+        add(new THREE.TubeGeometry(rail, 80, 0.022, 6, true), mats.metalDark, root, false);
+        this.cockpitWell = new THREE.Group();
+        this.cockpitWell.position.set(0, skinY(zc, 0) - 0.02, zc - cl * 0.03);
+        for (const p of buildCockpitWell(c.w, cl)) this.cockpitWell.add(new THREE.Mesh(p.geo, p.mat));
+        root.add(this.cockpitWell);
       }
+      // the pilot strapped into the ejection seat (the F-16's leans back 30 degrees)
       this.pilot = new THREE.Group();
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), mats.helmet);
-      head.position.set(0, eyeY - 0.02, eyeZ + 0.08);
-      const visor = new THREE.Mesh(new THREE.SphereGeometry(0.152, 12, 8, -Math.PI * 0.5, Math.PI, Math.PI * 0.35, Math.PI * 0.3), mats.glass);
-      visor.position.copy(head.position);
-      visor.rotation.y = Math.PI;
-      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.5, 8), mats.suit);
-      torso.position.set(0, eyeY - 0.38, eyeZ + 0.18);
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.12), mats.cockpit);
-      seat.position.set(0, eyeY - 0.25, eyeZ + 0.45);
-      seat.rotation.x = -0.25;
-      this.pilot.add(head, visor, torso, seat);
+      this.pilot.position.set(eyeX, eyeY, eyeZ);
+      for (const p of bakeSeatedPilot(d.seatRecline ?? (spec.id === 'f16' ? 0.5 : 0.24))) {
+        const m = new THREE.Mesh(p.geo.clone(), p.mat);
+        m.castShadow = false;
+        this.pilot.add(m);
+      }
       root.add(this.pilot);
     }
 
@@ -1146,6 +1227,28 @@ export class JetModel {
   setVaporLight(color) {
     if (this.vaporMat) this.vaporMat.uniforms.uLight.value.copy(color);
     if (this.wingVaporMat) this.wingVaporMat.uniforms.uLight.value.copy(color);
+  }
+
+  // Opens a fighter canopy on its rear hinge (0 = shut, 1 = fully open) for the
+  // boarding scene; the glass and its frame move together.
+  setCanopyOpen(f) {
+    if (!this.canopy || !this.canopyInfo || this.canopyInfo.c.noTub) return;
+    if (!this.canopyHinge) {
+      const { c, cz1 } = this.canopyInfo;
+      const hinge = new THREE.Group();
+      hinge.position.set(0, c.y + 0.05, cz1);
+      this.root.add(hinge);
+      for (const m of [this.canopy, this.canopyFrame]) {
+        if (!m) continue;
+        this.root.remove(m);
+        m.position.sub(hinge.position);
+        hinge.add(m);
+      }
+      this.canopyHinge = hinge;
+    }
+    this.canopyHinge.rotation.x = THREE.MathUtils.degToRad(42) * THREE.MathUtils.clamp(f, 0, 1);
+    // the solid frame hoop only reads as a frame with the canopy shut
+    if (this.canopyFrame) this.canopyFrame.visible = f < 0.02 && !this.cockpitOn;
   }
 
   setCockpitView(on) {

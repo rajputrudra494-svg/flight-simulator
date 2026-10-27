@@ -19,6 +19,9 @@ const GradeShader = {
     uWhiteout: { value: 0 },
     uBlackout: { value: 0 },
     uTime: { value: 0 },
+    uTexel: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
+    uSharpen: { value: 0.32 },
+    uGrain: { value: 0.018 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -31,7 +34,15 @@ const GradeShader = {
     uniform float uWhiteout;
     uniform float uBlackout;
     uniform float uTime;
+    uniform vec2 uTexel;
+    uniform float uSharpen;
+    uniform float uGrain;
     varying vec2 vUv;
+    float gHash( vec2 p ) {
+      p = fract( p * vec2( 443.897, 441.423 ) );
+      p += dot( p, p.yx + 19.19 );
+      return fract( ( p.x + p.y ) * p.x );
+    }
     void main() {
       vec2 d = vUv - 0.5;
       float r = length( d );
@@ -41,6 +52,13 @@ const GradeShader = {
       col.r = texture2D( tDiffuse, vUv - d * ca ).r;
       col.g = texture2D( tDiffuse, vUv ).g;
       col.b = texture2D( tDiffuse, vUv + d * ca ).b;
+      // contrast-adaptive sharpening: crisper panel lines, windows and terrain
+      // detail without ringing on bright edges
+      vec3 nb = texture2D( tDiffuse, vUv + vec2( uTexel.x, 0.0 ) ).rgb + texture2D( tDiffuse, vUv - vec2( uTexel.x, 0.0 ) ).rgb
+        + texture2D( tDiffuse, vUv + vec2( 0.0, uTexel.y ) ).rgb + texture2D( tDiffuse, vUv - vec2( 0.0, uTexel.y ) ).rgb;
+      vec3 lap = col - nb * 0.25;
+      float edgeAmt = 1.0 - smoothstep( 0.05, 0.35, max( max( abs( lap.r ), abs( lap.g ) ), abs( lap.b ) ) );
+      col = max( col + lap * uSharpen * edgeAmt, 0.0 );
       // gentle filmic contrast, a touch more colour, and a soft shoulder that
       // takes the glare out of sunlit cloud tops and water
       col = mix( col, col * col * ( 3.0 - 2.0 * col ), 0.18 );
@@ -53,6 +71,9 @@ const GradeShader = {
       col *= 1.0 - uBlackout * smoothstep( 0.15, 0.6, r ) - uBlackout * 0.5;
       col = mix( col, vec3( 0.6, 0.05, 0.03 ), uDamage * smoothstep( 0.2, 0.75, r ) );
       col = mix( col, vec3( 0.86, 0.88, 0.9 ), uWhiteout );
+      // fine film grain, strongest in the shadows
+      float lumG = dot( col, vec3( 0.333 ) );
+      col += ( gHash( vUv * 1024.0 + fract( uTime * 7.31 ) * 97.0 ) - 0.5 ) * uGrain * ( 1.0 - smoothstep( 0.0, 0.8, lumG ) );
       gl_FragColor = vec4( max( col, 0.0 ), 1.0 );
     }
   `,
@@ -142,6 +163,7 @@ export class GameRenderer {
     if (this.composer) {
       this.composer.setPixelRatio(pr);
       this.composer.setSize(w, h);
+      if (this.grade) this.grade.uniforms.uTexel.value.set(1 / Math.max(1, w * pr), 1 / Math.max(1, h * pr));
     }
   }
 

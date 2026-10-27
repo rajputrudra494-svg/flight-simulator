@@ -7,11 +7,11 @@ WebGL 2 is available, from phones to high-end desktops.
 
 ## Features
 
-### Aircraft (33)
+### Aircraft (44)
 Every aircraft has its own geometry, livery, flight model and loadout, built from real-world
 dimensions, wing areas, weights and engine thrust.
 
-**Military jets (17)**
+**Military jets (23)**
 
 | Aircraft | Role | Highlights |
 |---|---|---|
@@ -34,6 +34,10 @@ dimensions, wing areas, weights and engine thrust.
 | F-22A Raptor | Stealth air dominance | The final unlock |
 | F-4E Phantom II | Cold War multirole | Cranked outer wings, drooping stabilators, gun in the nose |
 | MiG-31BM Foxhound | Mach 2.8 interceptor | Engines pull harder with speed; 1.23 Mach limit down low |
+| J-10C Vigorous Dragon | Multirole | Canard delta with a chin intake |
+| MiG-35 Fulcrum-F | Multirole | The modernised Fulcrum, Mach 2.25 |
+| F-15E Strike Eagle | Dual-role strike | Conformal fuel tanks, dark grey, Mach 2.5 |
+| Su-30MKI Flanker-H | Two-seat air superiority | Canards and thrust vectoring, twelve missiles |
 
 **Bombers and special aircraft (6)**
 
@@ -52,7 +56,7 @@ tops out near Mach 2.8.
 
 **Every aircraft is unlocked in Free Flight.** The campaign still unlocks them for missions.
 
-**Airliners & cargo (8)** — Airbus A320neo, Boeing 737 MAX 8, Boeing 787-9 Dreamliner (raked wingtips, big
+**Airliners & cargo (15)** — Airbus A220-300, Embraer E195-E2, Airbus A320neo, Airbus A321neo, Boeing 737 MAX 8, Boeing 757-200, Boeing 767-300ER, Airbus A330-900neo, Airbus A350-900 (curved sharklets), Boeing 787-9 Dreamliner (raked wingtips, big
 windows), Boeing 777-300ER, Boeing 747-8
 (upper-deck hump), Airbus A380 (two window decks), Concorde (droop nose, reheat, Mach 2) and the
 **Antonov An-124 Ruslan**.
@@ -68,6 +72,32 @@ hold. High-bypass turbofans lose thrust as speed builds, so the take-off run tak
 aircraft: it stays locked there (even with *Unlock all*) until you complete **Heavy Escort**,
 **Final Approach** and **Dragon's Teeth**, which also opens its own special operation, **Operation
 Atlas**. In Free Flight it is open from the start like everything else.
+
+### Real-world performance
+Every type is tuned to its real figures. Low-bypass afterburning engines recover ram pressure with speed
+(at Mach 2 and altitude they make about their sea-level static thrust again), so jets reach their real
+top speeds up high: F-16 Mach 2.05, F-15 Mach 2.5, F-22 Mach 2.25, MiG-31 Mach 2.83, SR-71 Mach 3.2 above
+20 km, Concorde Mach 2.04. Supersonic fighters are held near 800 knots indicated (about Mach 1.2) on the
+deck, airliners top out at their real cruise Mach. `npm run test:physics` prints the reached top Mach
+next to the real one for every aircraft.
+
+### Pre-flight story
+Every sortie, in free flight and in the campaign, starts on the stand. The pilot walks out of the hangar
+(or the captain and first officer from the terminal), climbs the ladder into the cockpit and the canopy
+comes down (an airstair and the forward door on airliners, a belly hatch on the big bombers). The crew
+chief or first officer runs the start while ATC gives the clearance (delivery on civil fields: departure,
+squawk and initial altitude), start-up approval and taxi instructions with real phraseology. A marshaller
+waves the jet out, it taxis along the yellow centre line to holding point A1, the tower clears it to line
+up and then for take-off, and you get control on the runway. Missions that start in the air fly the
+take-off as a cutscene and cut to the operations area. Letterboxed cinematic cameras, subtitles for every
+transmission and a stage bar (walk-out, start-up, taxi, line-up, take-off) follow it all; Enter, Space or
+Esc skips it, and Settings turns it off.
+
+The people are modelled with human proportions: lathed limbs with knee and calf shape, a chest-waist-hip
+torso, gloved hands and a face, the fighter pilot in flight suit, G-suit, survival vest and harness with a
+visored helmet and oxygen mask. Under the canopy every fighter now has a cockpit that follows the
+fuselage: the sill rail, glare shield, lit screens, HUD glass and an ejection seat with its yellow-and-black
+handles, with the pilot strapped in.
 
 ### Cockpits
 Press **C** for the cockpit view. Every aircraft has its own cockpit layout, lit like a real one:
@@ -95,9 +125,17 @@ light fills the cockpit after dark.
   cranes, parks and an international airport linked by highway
 - **Desert Metropolis** (city): a supertall 828 m tower, gulf-style glass and stone towers, a
   palm-shaped island offshore and dunes inland, at dusk by default
+- **Harbour City** (city): supertall towers packed onto two narrow shores of a deep harbour between
+  steep jungle peaks, a container port and an airport on a reclaimed island
+- **Rivergate** (city): an old European capital on a winding river: courtyard blocks with tiled and
+  slate roofs, a domed cathedral, stone arch bridges, a TV tower and a business district of towers
+- **Lakeshore** (city): a gridded skyline standing on the shore of a great lake, a river through
+  downtown and a lakefront stadium
 
 Cities are tens of thousands of instanced buildings with a procedural facade shader (glass
-curtain walls, ribbon windows, punched windows), streets with lane markings, parks and docks.
+curtain walls with mullions, ribbon windows, punched windows, European stone facades with cornices,
+shop fronts with awnings, blinds, rain streaks and corner shading), pitched tile and slate roofs,
+rooftop plant and helipads, GPU-animated car traffic on every street with head and tail lights, streets with lane markings, parks and docks.
 Buildings are solid: aircraft, bullets, missiles and the camera all collide with them, and SAMs can
 sit on rooftops. Free flight offers dawn to sunset plus **dusk** and **night**: windows, street
 lights, moving car lights, bridge and aviation obstruction lights come on, and night is lit by the
@@ -204,9 +242,14 @@ transcript on the HUD with the station tag and frequency.
 
 ### Graphics that scale
 - Physically based sky with aerial-perspective fog, a night sky with moon, stars and city glow
-- Quadtree LOD terrain with procedural splatting, city streets and night lighting
+- Quadtree LOD terrain with procedural splatting, close-range micro relief, city streets and night lighting
+- Airports with taxiway centre lines, holding-point markings, blue edge and green centre-line lights,
+  stained slab concrete, rubbered and grooved runways, apron flood lights, a passenger terminal on civil
+  fields and parked aircraft on the other stands
+- Contrast-adaptive sharpening and fine film grain in the post-processing chain
 - Animated water, billboard clouds, instanced forests and city parks
-- PBR aircraft with image-based lighting, panel-line normal maps, clear-coat airline paint, shock
+- PBR aircraft with image-based lighting, panel-line normal maps, clear-coat airline paint, service
+  wear (exhaust soot, belly grime and streaks, a paint sheen that breaks up across the skin), shock
   diamonds in the afterburners, nav lights, strobes and beacons with glow
 - Particle explosions, fuel fireballs, billowing missile smoke, wingtip vortices, contrails,
   restrained bloom, ACES tone mapping and a soft highlight shoulder that keeps glare down

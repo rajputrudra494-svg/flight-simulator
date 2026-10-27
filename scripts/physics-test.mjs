@@ -54,6 +54,12 @@ for (const id of JET_ORDER) {
   fm = makeFM(jet, 300, 220);
   run(fm, ctrl({ throttle: 1 }), 90);
   r.abMachSL = +fm.mach.toFixed(2);
+  // top speed up high (the real figure is quoted at 11-13 km; SR-71 higher)
+  const high = jet.flight.maxMach > 2.6 ? 21000 : 12000;
+  fm = makeFM(jet, high, jet.flight.maxMach > 2.6 ? 700 : 280);
+  run(fm, ctrl({ throttle: 1 }), 240);
+  r.topMach = +fm.mach.toFixed(2);
+  r.realMach = jet.flight.maxMach;
   // 3. max pull at 450 kts
   fm = makeFM(jet, 4000, 232);
   let maxG = 0, maxA = 0;

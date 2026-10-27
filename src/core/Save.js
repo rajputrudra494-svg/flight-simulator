@@ -18,6 +18,8 @@ export const DEFAULT_SETTINGS = {
   touchControls: 'auto',
   unlockAll: false,
   lockAssist: true,
+  // pre-flight story before every sortie: walk-out, start-up, ATC and taxi
+  story: true,
   targetCam: true,
   // scene exposure multiplier: below 1 is a little dimmer than the raw sky model
   brightness: 0.8,

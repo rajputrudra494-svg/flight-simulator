@@ -268,7 +268,7 @@ export const FIGHTERS = {
     stats: { speed: 0.84, agility: 0.8, firepower: 0.62, armor: 0.56 },
     flight: {
       brakes: { chute: 12 },
-      mass: 10500, wingArea: 41, thrustDry: 64, thrustAB: 95, cd0: 0.018, k: 0.13,
+      mass: 10500, wingArea: 41, thrustDry: 64, thrustAB: 95, cd0: 0.0145, k: 0.13,
       clAlpha: 3.6, maxAoA: 29, maxG: 9, pitchRate: 26, rollRate: 270, yawRate: 18, maxMach: 2.2,
     },
     weapons: { gunAmmo: 250, missiles: 6, flares: 28, gunRate: 30, gunDamage: 13 },

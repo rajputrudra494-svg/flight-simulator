@@ -7,7 +7,7 @@ import { mulberry32 } from './noise.js';
 export const CELL = { NONE: 0, URBAN: 1, PARK: 2, PORT: 3 };
 
 // Facade styles understood by the building shader (City.js)
-export const STYLE = { GLASS: 0, OFFICE: 1, RESIDENTIAL: 2, GULF: 3, GOLD: 4, WAREHOUSE: 5 };
+export const STYLE = { GLASS: 0, OFFICE: 1, RESIDENTIAL: 2, GULF: 3, GOLD: 4, WAREHOUSE: 5, EURO: 6 };
 export const SHAPE = { BOX: 0, ROUND: 1, HEX: 2 };
 
 export class CityLayout {
@@ -34,6 +34,8 @@ export class CityLayout {
     this._buildings();
     this._landmarks();
     if (def.bridge) this._bridge(def.bridge);
+    this.arches = [];
+    for (const b of def.bridges || []) this._archBridge(b);
   }
 
   index(x, z) {
@@ -200,7 +202,7 @@ export class CityLayout {
       void b2;
       return;
     }
-    const b = this._place({ x, z, w, d, h, style, shape, seed, lit, tint });
+    const b = this._place({ x, z, w, d, h, style, shape, seed, lit, tint, roof: opts.roof && h < 30 ? 1 : 0 });
     if (h > 120 && r() < 0.55) this.spires.push({ x, z, y: b.y0 + b.h, h: 10 + r() * 35 });
   }
 
@@ -212,6 +214,7 @@ export class CityLayout {
       case STYLE.RESIDENTIAL: return [[0.66, 0.42, 0.32], [0.82, 0.78, 0.7], [0.72, 0.62, 0.5], [0.85, 0.82, 0.76], [0.55, 0.5, 0.46]][Math.floor(r * 5)];
       case STYLE.GULF: return [[0.92, 0.88, 0.8], [0.86, 0.8, 0.7], [0.95, 0.94, 0.92]][Math.floor(r * 3)];
       case STYLE.GOLD: return [[0.78, 0.62, 0.34], [0.7, 0.58, 0.4]][Math.floor(r * 2)];
+      case STYLE.EURO: return [[0.86, 0.8, 0.66], [0.8, 0.72, 0.58], [0.9, 0.86, 0.78], [0.74, 0.66, 0.56], [0.84, 0.74, 0.6], [0.7, 0.72, 0.7]][Math.floor(r * 6)];
       default: return [0.6, 0.6, 0.6];
     }
   }
@@ -234,6 +237,10 @@ export class CityLayout {
         const { peak, low } = this._height(x, z, dist);
         this.heightClass[k] = Math.min(255, Math.round(peak));
         const jitter = (s) => (r() - 0.5) * s;
+        if (def.style === 'euro' && peak <= 110) {
+          this._perimeterBlock(x, z, inner, low, peak);
+          continue;
+        }
         if (peak > 110) {
           // downtown: one or two towers, sometimes on a podium
           if (r() < 0.35) this._place({ x, z, w: inner, d: inner, h: 10 + r() * 12, style: STYLE.OFFICE, shape: SHAPE.BOX, seed: r(), lit: 0.6, tint: this._tint(STYLE.OFFICE) });
@@ -261,10 +268,35 @@ export class CityLayout {
               if (r() < 0.22) continue;
               const qx = x + (a - (n - 1) / 2) * inner / n, qz = z + (b - (n - 1) / 2) * inner / n;
               const s = (inner / n) * (0.5 + r() * 0.3);
-              this._tower(qx, qz, s, s * (0.8 + r() * 0.5), low * (0.45 + r() * 0.7), { style: STYLE.RESIDENTIAL });
+              this._tower(qx, qz, s, s * (0.8 + r() * 0.5), low * (0.45 + r() * 0.7), { style: STYLE.RESIDENTIAL, roof: r() < (def.pitched ?? 0.55) ? 1 : 0 });
             }
           }
         }
+      }
+    }
+  }
+
+  // European city block: buildings around a courtyard, 5-8 storeys, pitched
+  // tile or slate roofs, with the odd taller corner building
+  _perimeterBlock(x, z, inner, low, peak) {
+    const r = this.rand;
+    const depth = 13 + r() * 4;
+    const base = Math.max(14, Math.min(28, low * 1.2 + peak * 0.12));
+    const sides = [
+      [x, z - inner / 2 + depth / 2, inner, depth], [x, z + inner / 2 - depth / 2, inner, depth],
+      [x - inner / 2 + depth / 2, z, depth, inner - depth * 2], [x + inner / 2 - depth / 2, z, depth, inner - depth * 2],
+    ];
+    for (const [bx, bz, w, d] of sides) {
+      // split each side into two or three houses of slightly different height
+      const n = 1 + Math.floor(r() * 2);
+      const along = w > d;
+      const L = along ? w : d;
+      for (let i = 0; i < n; i++) {
+        const seg = L / n;
+        const off = -L / 2 + seg * (i + 0.5);
+        const h = base * (0.85 + r() * 0.3) + (r() < 0.06 ? 10 : 0);
+        const tint = this._tint(STYLE.EURO);
+        this._place({ x: along ? bx + off : bx, z: along ? bz : bz + off, w: along ? seg - 0.6 : w, d: along ? d : seg - 0.6, h, style: STYLE.EURO, shape: SHAPE.BOX, seed: r(), lit: 0.45 + r() * 0.3, tint, roof: 1 });
       }
     }
   }
@@ -308,6 +340,9 @@ export class CityLayout {
         for (const [hw, f] of tiers) this._addObstacle(lm.x - hw, lm.x + hw, lm.z - hw, lm.z + hw, -1e4, y0 + lm.h * f);
       } else if (lm.type === 'stadium') {
         this._addObstacle(lm.x - lm.r, lm.x + lm.r, lm.z - lm.r * 0.8, lm.z + lm.r * 0.8, -1e4, y0 + lm.h);
+      } else if (lm.type === 'dome') {
+        this._addObstacle(lm.x - lm.r, lm.x + lm.r, lm.z - lm.r, lm.z + lm.r, -1e4, y0 + lm.h * 0.55);
+        this._addObstacle(lm.x - lm.r * 0.7, lm.x + lm.r * 0.7, lm.z - lm.r * 0.7, lm.z + lm.r * 0.7, -1e4, y0 + lm.h);
       } else if (lm.type === 'twin') {
         for (const s of [-1, 1]) this._addObstacle(lm.x + s * 40 - 22, lm.x + s * 40 + 22, lm.z - 22, lm.z + 22, -1e4, y0 + lm.h);
         this._addObstacle(lm.x - 20, lm.x + 20, lm.z - 5, lm.z + 5, y0 + lm.h * 0.4, y0 + lm.h * 0.43);
@@ -320,6 +355,14 @@ export class CityLayout {
     this.bridge = { ...b };
     this._addObstacle(b.x0, b.x1, b.z - 15, b.z + 15, deckY - 3.5, deckY + 1.5);
     for (const tx of b.towers) this._addObstacle(tx - 7, tx + 7, b.z - 19, b.z + 19, -1e4, deckY + b.towerH);
+  }
+
+  // stone arch bridge across a river running along z: deck from x0 to x1 at z
+  _archBridge(b) {
+    const deckY = b.deckY ?? 12;
+    const br = { ...b, deckY };
+    this.arches.push(br);
+    this._addObstacle(b.x0, b.x1, b.z - (b.w || 22) / 2, b.z + (b.w || 22) / 2, deckY - 3, deckY + 1);
   }
 
   // open ground (park or plaza) near a point, for placing ground units

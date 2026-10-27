@@ -27,6 +27,9 @@ const MAP_GRADIENTS = {
   highlands: 'linear-gradient(135deg,#2e4a22,#7f9a45 50%,#f0a060)',
   metro: 'linear-gradient(135deg,#1c2a3a,#4f6f8f 45%,#c9d6e0)',
   desert: 'linear-gradient(135deg,#3a2414,#c27a3a 50%,#f4c46e)',
+  harbour: 'linear-gradient(135deg,#10262e,#2f6b5a 45%,#9ec9c4)',
+  rivergate: 'linear-gradient(135deg,#3b2a24,#a2563a 45%,#e6d2a8)',
+  lakeshore: 'linear-gradient(135deg,#14243a,#3f6e94 45%,#d9e4ea)',
 };
 
 // which aircraft a mission accepts
@@ -438,6 +441,7 @@ export class Menus {
         <label>Difficulty ${sel('difficulty', [0.7, 1, 1.25], ['Recruit', 'Pilot', 'Ace'])}</label>
         <label>Lock-on assist (easy targeting) ${chk('lockAssist')}</label>
         <label>Targeting pod window ${chk('targetCam')}</label>
+        <label>Pre-flight story (walk-out, ATC, taxi) ${chk('story')}</label>
         <label>Units ${sel('units', ['imperial', 'metric'], ['Knots / feet', 'km/h / metres'])}</label>
         <label>Unlock all missions &amp; aircraft ${chk('unlockAll')}</label>
         <h3>Audio</h3>

@@ -200,6 +200,27 @@ const terrainShaderPars = /* glsl */ `
   }
 `;
 
+// Close-range micro relief: a bump from the noise texture at three scales
+// (clods and stones, tussocks, gentle undulation) perturbs the shading normal
+// and fades out with distance, so far terrain keeps its smooth look.
+const terrainBump = /* glsl */ `
+  {
+    float tbDist = length( vTPos - cameraPosition );
+    float tbFade = 1.0 - smoothstep( 250.0, 2200.0, tbDist );
+    if ( tbFade > 0.0 && vTPos.y > uWaterLevel + 0.5 ) {
+      vec2 bp = vTPos.xz;
+      float hb = texture2D( uNoise, bp / 14.0 ).a * 0.6 + texture2D( uNoise, bp / 3.7 ).r * 0.35 + texture2D( uNoise, bp / 60.0 ).g * 1.4;
+      vec3 sp = -vViewPosition;
+      vec3 dpx = dFdx( sp ), dpy = dFdy( sp );
+      float dhx = dFdx( hb ), dhy = dFdy( hb );
+      vec3 r1 = cross( dpy, normal ), r2 = cross( normal, dpx );
+      float det = dot( dpx, r1 );
+      vec3 grad = sign( det ) * ( dhx * r1 + dhy * r2 );
+      normal = normalize( abs( det ) * normal - grad * 1.1 * tbFade );
+    }
+  }
+`;
+
 function cityTexture(city) {
   const N = city.N;
   const data = new Uint8Array(N * N * 4);
@@ -264,9 +285,10 @@ export function createTerrainMaterial(mapDef, quality, map = null) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + terrainShaderPars)
       .replace('#include <color_fragment>', 'diffuseColor.rgb = terrainAlbedo();')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + terrainBump)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += tCityEmit;');
   };
-  mat.customProgramCacheKey = () => 'terrain-v2';
+  mat.customProgramCacheKey = () => 'terrain-v3';
   mat.userData.uniforms = uniforms;
   return mat;
 }

@@ -130,24 +130,30 @@ const FACILITIES = {
   highlands: { name: 'Highland', full: 'Highland', tower: '118.500', ground: '121.700', approach: '120.250', departure: '125.900', awacs: '269.100' },
   metro: { name: 'Metro Bay', full: 'Metro Bay International', tower: '119.250', ground: '121.925', approach: '124.550', departure: '127.150', awacs: '258.400', civil: true },
   desert: { name: 'Desert City', full: 'Desert City International', tower: '118.200', ground: '121.850', approach: '124.850', departure: '127.600', awacs: '276.400', civil: true },
+  harbour: { name: 'Harbour', full: 'Harbour City International', tower: '118.400', ground: '121.600', approach: '119.100', departure: '123.800', delivery: '129.900', awacs: '251.600', civil: true },
+  rivergate: { name: 'Rivergate', full: 'Rivergate International', tower: '119.700', ground: '121.775', approach: '125.350', departure: '128.050', delivery: '121.950', awacs: '262.100', civil: true },
+  lakeshore: { name: 'Lakeshore', full: 'Lakeshore International', tower: '120.750', ground: '121.900', approach: '125.000', departure: '125.400', delivery: '121.600', awacs: '279.300', civil: true },
 };
 
 const FIGHTER_CALLSIGN = {
   f16: 'Viper', fa18: 'Rhino', typhoon: 'Typhoon', mig29: 'Fulcrum', su35: 'Flanker', f22: 'Raptor', f15: 'Eagle',
   f35: 'Lightning', f14: 'Tomcat', rafale: 'Rafale', gripen: 'Gripen', tejas: 'Tejas', mirage: 'Mirage', su57: 'Felon',
-  j20: 'Dragon', mig21: 'Fishbed', a10: 'Hawg',
+  j20: 'Dragon', mig21: 'Fishbed', a10: 'Hawg', su30: 'Flanker', f15e: 'Dude', j10: 'Dragon', mig35: 'Fulcrum',
 };
 const AIRLINE_CALLSIGN = {
   'AERO NOVA': 'Nova', SKYWARD: 'Skyward', 'PACIFIC AZURE': 'Azure', 'ROYAL SAHARA': 'Sahara', 'NORDIC STAR': 'Nordic',
-  'AERO SST': 'Aero', ANTONOV: 'Antonov',
+  'AERO SST': 'Aero', ANTONOV: 'Antonov', 'TERRA AIR': 'Terra', LUMA: 'Luma', CARIOCA: 'Carioca', ATLANTICA: 'Atlantica',
+  SOLAR: 'Solar', MERIDIAN: 'Meridian', HORIZON: 'Horizon',
 };
-const HEAVY = new Set(['b777', 'b747', 'an124']);
+const HEAVY = new Set(['b777', 'b747', 'an124', 'b787', 'b767', 'a330', 'a350']);
 const SUPER = new Set(['a380']);
-const AIRBUS = new Set(['a320', 'a380']);
+const AIRBUS = new Set(['a320', 'a380', 'a321', 'a220', 'a330', 'a350']);
 const TYPE_NAME = {
   a320: P('an Airbus A three twenty', 'A320'), b737: P('a Boeing seven three seven', 'B737'), b777: P('a Boeing triple seven', 'B777'),
   b747: P('a Boeing seven four seven', 'B747'), a380: P('an Airbus A three eighty', 'A380'), concorde: P('a Concorde', 'CONC'),
-  an124: P('an Antonov one twenty-four', 'A124'),
+  an124: P('an Antonov one twenty-four', 'A124'), a321: P('an Airbus A three twenty-one', 'A321'), a220: P('an Airbus A two twenty', 'BCS3'),
+  e195: P('an Embraer one ninety-five', 'E295'), b757: P('a Boeing seven five seven', 'B752'), b767: P('a Boeing seven six seven', 'B763'),
+  a330: P('an Airbus A three thirty', 'A339'), a350: P('an Airbus A three fifty', 'A359'), b787: P('a Boeing seven eight seven', 'B789'),
 };
 const BRAKING = {
   wet: P('Runway wet, condition code five five five, braking action good.', 'RWY WET, RWYCC 5/5/5, braking action good.'),
@@ -242,8 +248,13 @@ export class ATC {
   }
 
   // ---------------------------------------------------------------- lifecycle
-  start() {
+  start(opts = {}) {
     this._newSortie(this.battle.player);
+    if (opts.story) {
+      // the pre-flight story already cleared a runway start for take-off
+      this.afterStory(!!opts.runway);
+      if (opts.runway) return;
+    }
     this._after(1.6, () => this._opening());
   }
 
@@ -654,6 +665,135 @@ export class ATC {
       if (d < bd) { bd = d; best = u; }
     }
     return best;
+  }
+
+  // ---------------------------------------------------------------- pre-flight story
+  // The boarding / start-up / taxi sequence (game/Prologue.js) asks for each
+  // exchange in turn and waits for the radio to fall quiet before moving on.
+  storyInfo() {
+    const r = rng(hashStr(`story:${this.mission.def.id}:${this.map.def.id}`));
+    if (!this._storyInfo) {
+      const civil = !!(this.battle.player && this.battle.player.spec.civil);
+      const others = Object.entries(FACILITIES).filter(([id, f]) => id !== this.map.def.id && f.civil).map(([, f]) => f.full);
+      const fixes = ['KILNO', 'ROVAX', 'TIBEN', 'MAREL', 'DOSIK', 'LUVAN', 'ESKON', 'PIDAR'];
+      this._storyInfo = {
+        civil,
+        stand: civil ? `${1 + Math.floor(r() * 4)}${'ABCD'[Math.floor(r() * 4)]}` : String(2 + Math.floor(r() * 6)),
+        dest: others.length ? pick(r, others) : 'Metro Bay International',
+        sid: `${pick(r, fixes)} ${1 + Math.floor(r() * 4)}${'ABCDEFG'[Math.floor(r() * 7)]}`,
+        squawk: String(1200 + Math.floor(r() * 5000)).replace(/[89]/g, '6'),
+        alt: Math.round((this._fieldFt() + (civil ? 6000 : this._combat() ? 6000 : 4000)) / 1000) * 1000,
+      };
+    }
+    return this._storyInfo;
+  }
+
+  storyRunway() {
+    return this._rwy(this.map.airbase.heading).d;
+  }
+
+  story(step) {
+    if (this.disposed) return;
+    const cs = this.cs, f = this.fac, info = this.storyInfo();
+    const rw = this._rwy(this.map.airbase.heading);
+    const ground = this.st.ground, tower = this.st.tower;
+    const delivery = { ...ground, id: 'delivery', name: `${f.name} Delivery`, short: 'DEL', freq: f.delivery || '121.975', voice: 'approach' };
+    const chief = { id: 'chief', name: 'Crew Chief', short: 'CHIEF', freq: '', kind: 'crew', voice: 'crew' };
+    // priority 2 keeps them in order: each readback (front of the queue) goes before the next call
+    const o = { priority: 2, expires: 60, story: true };
+    const standP = info.civil ? P(`stand ${sayDigits(info.stand.replace(/\D/g, ''))} ${PHONETIC['ABCD'.indexOf(info.stand.slice(-1))] || ''}`, `stand ${info.stand}`) : P(`parking ${sayDigits(info.stand)}`, `parking ${info.stand}`);
+    const sq = P(sayDigits(info.squawk), info.squawk);
+    const sidParts = info.sid.split(' ');
+    const sid = P(`${cap(sidParts[0].toLowerCase())} ${sayDigits(sidParts[1][0])} ${PHONETIC['ABCDEFG'.indexOf(sidParts[1][1])]}`, info.sid);
+    switch (step) {
+      case 'clearance':
+        if (info.civil) {
+          this._say(this._me(delivery), msg`${f.name} Delivery, ${cs}, ${standP}, information ${this.atis}, request clearance to ${info.dest}.`, o);
+          this._say(delivery, msg`${cs}, ${f.name} Delivery, cleared to ${info.dest} via the ${sid} departure, runway ${rw}, climb ${this._alt(info.alt)}, squawk ${sq}.`, {
+            ...o, readback: { st: this._me(delivery), m: msg`Cleared to ${info.dest}, ${sid} departure, runway ${rw}, ${this._alt(info.alt)}, squawk ${sq}, ${cs}.` },
+          });
+        } else {
+          this._say(chief, P('Chocks in, fire bottle manned. You are clear to start, sir.', 'Chocks in, fire bottle manned. Clear to start.'), o);
+        }
+        break;
+      case 'start':
+        this._say(this._me(ground), msg`${f.name} Ground, ${cs}, ${standP}${info.civil ? P('') : msg`, with ${this.atis}`}, request start-up.`, o);
+        this._say(ground, msg`${cs}, ${f.name} Ground, start-up approved, ${this._altimeter()}, expect runway ${rw}.`, {
+          ...o, readback: { st: this._me(ground), m: msg`Start-up approved, ${this._altimeter()}, ${cs}.` },
+        });
+        break;
+      case 'engines':
+        if (info.civil) {
+          this._say(this.st.crew, P('Starting engine two... N2 rising, fuel flow, light-off.'), o);
+          this._say(this.st.crew, P('Engine two stable. Starting engine one.'), o);
+          this._say(this.st.crew, P('Both engines stable. After start checklist complete.'), o);
+        } else {
+          this._say(this._me(chief), P('Starting engine.'), o);
+          this._say(chief, P('Engine looks good, no leaks. Pulling chocks, you are clear to taxi.'), o);
+        }
+        break;
+      case 'taxi': {
+        const hp = info.civil ? P('holding point Alpha one', 'holding point A1') : P('', '');
+        this._say(this._me(ground), msg`${cs}, request taxi.`, o);
+        if (info.civil) {
+          this._say(ground, msg`${cs}, taxi to ${hp} runway ${rw} via Alpha.`, {
+            ...o, readback: { st: this._me(ground), m: msg`Taxi to ${hp} runway ${rw} via Alpha, ${cs}.` },
+          });
+        } else {
+          this._say(ground, msg`${cs}, taxi runway ${rw} via Alpha, hold short runway ${rw}, ${this._wind()}.`, {
+            ...o, readback: { st: this._me(ground), m: msg`Taxi via Alpha, hold short runway ${rw}, ${cs}.` },
+          });
+        }
+        break;
+      }
+      case 'checklist':
+        if (info.civil) {
+          this._say(this.st.crew, P('Flaps set, flight controls checked. Before take-off checklist down to the line.'), o);
+        } else {
+          this._say(this._me(ground), P('Canopy closed and locked, harness, pins pulled, flight controls free and correct.', 'Canopy closed, harness, pins pulled, controls checked.'), o);
+        }
+        break;
+      case 'hold': {
+        const where = info.civil ? P('holding point Alpha one', 'holding point A1') : msg`holding short runway ${rw}`;
+        this._say(this._me(tower), msg`${f.name} Tower, ${cs}, ${where}, ready for departure.`, o);
+        this._say(tower, msg`${cs}, ${f.name} Tower, runway ${rw}, line up and wait.`, {
+          ...o, readback: { st: this._me(tower), m: msg`Line up and wait runway ${rw}, ${cs}.` },
+        });
+        break;
+      }
+      case 'cleared': {
+        const brk = this._braking();
+        const extra = brk ? P(' ' + brk.s, ' ' + brk.d) : P('');
+        const after = info.civil ? P('') : msg` After departure fly runway heading, climb ${this._alt(info.alt)}.`;
+        this._say(tower, msg`${cs}, ${this._wind()}, runway ${rw}, cleared for take-off.${after}${extra}`, {
+          ...o, readback: { st: this._me(tower), m: msg`Cleared for take-off runway ${rw}, ${cs}.` },
+        });
+        break;
+      }
+      case 'rolling':
+        if (info.civil) {
+          this._say(this.st.pf, P('Take-off. Thrust set.'), o);
+          this._say(this.st.crew, P('Eighty knots... V1... rotate... positive rate.'), o);
+          this._say(this.st.pf, P('Gear up.'), o);
+        }
+        break;
+      case 'departure':
+        this._say(tower, msg`${cs}, contact ${this._combat() ? 'Overlord' : `${f.name} Departure`}, good day.`, {
+          ...o, readback: { st: this._me(tower), m: msg`Good day, ${cs}.` },
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  // the story already ran the clearances: carry on from the line-up
+  afterStory(runway) {
+    if (!this.s) return;
+    this.s.lineUp = true;
+    this.s.cleared = runway;
+    this.s.assignedAlt = this.storyInfo().alt;
+    this.s.squawk = this.storyInfo().squawk;
   }
 
   // ---------------------------------------------------------------- take-off / departure
